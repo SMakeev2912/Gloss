@@ -1,0 +1,55 @@
+name: Release
+
+# Выпуск новой версии: поднять VERSION в config.py, закоммитить и отправить тег:
+#   git tag v1.1.0 && git push origin v1.1.0
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      PYTHONUTF8: "1"  # русские сообщения скриптов в журнале сборки
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Create venv
+        run: python -m venv .venv
+
+      - name: Check that tag matches VERSION
+        shell: pwsh
+        run: |
+          $version = .venv\Scripts\python.exe -c "import config; print(config.VERSION)"
+          if ("v$version" -ne "${{ github.ref_name }}") {
+            throw "Тег ${{ github.ref_name }} не совпадает с VERSION=$version в config.py"
+          }
+
+      - name: Tests
+        run: |
+          .venv\Scripts\python.exe -m pip install -q -r requirements.txt pytest
+          .venv\Scripts\python.exe -m pytest -q tests
+
+      - name: Build
+        shell: cmd
+        run: build.bat
+
+      # Описание выпуска – пункты «Что нового» из CHANGELOG.md: их Gloss показывает пользователям.
+      - name: Release notes
+        run: .venv\Scripts\python.exe changelog.py notes ${{ github.ref_name }} > dist\notes.md
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/GlossSetup.exe
+            dist/Gloss.exe
+            dist/SHA256SUMS.txt
+          body_path: dist/notes.md
