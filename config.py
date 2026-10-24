@@ -18,7 +18,7 @@ from modes import DEFAULT_COMMON_RULES, DEFAULT_DICTATION, DEFAULT_MODES, Mode
 log = logging.getLogger(__name__)
 
 APP_NAME = "Gloss"
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 
 
 def _update_repo() -> str | None:
