@@ -72,8 +72,8 @@ class Wizard(Chrome):
                                          "Ваши настройки сохранятся.")
         else:
             self.title.configure(text="Установка Gloss")
-            self.subtitle.configure(text="Улучшение выделенного текста в любой программе с помощью локальной "
-                                         "нейросети. Тексты не покидают ваш компьютер.")
+            self.subtitle.configure(text="Улучшение выделенного текста и диктовка в любой программе с помощью "
+                                         "локальной нейросети. Тексты и голос не покидают ваш компьютер.")
 
     def _show_scanning(self) -> None:
         self.page = "scanning"
@@ -301,6 +301,13 @@ class Wizard(Chrome):
             cfg = load_config_or_defaults()
             rows = [(str(m.hotkey), m.name) for m in cfg.modes if m.enabled and m.hotkey]
             widgets.hotkey_table(panel.inner, rows).pack(fill="x")
+            dictation = cfg.dictation.mode
+            if dictation.enabled and dictation.hotkey:
+                self.heading("Чтобы надиктовать, поставьте курсор в поле ввода и нажмите", pady=(self.px(14), self.px(8)))
+                panel = widgets.Panel(self.body, padding=(18, 12))
+                panel.pack(fill="x")
+                widgets.hotkey_table(panel.inner, [(str(dictation.hotkey), "говорите, затем нажмите ещё раз")]
+                                     ).pack(fill="x")
             self.label("Esc во время обработки отменяет её. Настройки и выход находятся в меню значка в трее.",
                        color="muted", size=9, pady=(self.px(12), 0))
             for warning in self.installer.warnings:

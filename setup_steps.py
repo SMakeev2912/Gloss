@@ -210,7 +210,7 @@ class Installer:
         self.report.progress(None, "Настройки, ярлыки, автозапуск…")
         config.set_model(config.installed_config_path(), self.options.model, self.options.backend)
         links = system.shortcut_paths()
-        system.create_shortcut(links["start_menu"], target, "Улучшение выделенного текста локальной нейросетью")
+        system.create_shortcut(links["start_menu"], target, "Улучшение текста и диктовка с локальной нейросетью")
         if self.options.desktop_shortcut and "desktop" in links:
             system.create_shortcut(links["desktop"], target, "Gloss")
         system.set_autostart(self.options.autostart, f'"{target}"')

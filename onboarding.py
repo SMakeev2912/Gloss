@@ -103,10 +103,17 @@ class OnboardingWindow(Chrome):
             badge.pack(anchor="w")
             widgets.text(cell.inner, title, "text", mono(10, bold=True), wrap=170).pack(fill="x", pady=(self.px(10), self.px(2)))
             widgets.text(cell.inner, text, "muted", sans(9), wrap=170).pack(fill="x")
+        dictation = self.cfg.dictation.mode
+        if dictation.enabled and dictation.hotkey:
+            row = tk.Frame(self.body, bg=COLORS["bg"])
+            row.pack(fill="x", pady=(0, self.px(14)))
+            widgets.text(row, "А ещё текст можно надиктовать:", "text", sans(10, bold=True)).pack(side="left")
+            widgets.keycaps(row, str(dictation.hotkey)).pack(side="left", padx=self.px(10))
+            widgets.text(row, "попробуете на третьем шаге.", "text", sans(10, bold=True)).pack(side="left")
         note = tk.Frame(self.body, bg=COLORS["bg"])
         note.pack(fill="x")
         widgets.icon_label(note, "lock", 16, COLORS["muted"]).pack(side="left", padx=(self.px(2), self.px(10)))
-        widgets.text(note, "Тексты обрабатываются нейросетью прямо на вашем компьютере и никуда не отправляются.",
+        widgets.text(note, "Тексты и голос обрабатываются нейросетью прямо на вашем компьютере и никуда не отправляются.",
                      "muted", sans(9), wrap=560).pack(side="left", fill="x", expand=True)
 
     def _modes(self) -> list:
