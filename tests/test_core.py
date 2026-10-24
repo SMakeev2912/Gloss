@@ -157,15 +157,22 @@ def test_quotes_are_replaced_and_restored_exactly():
     import quotes
     text = 'Нажмите «Сохранить» в форме "Заявка", цитата «он сказал „да“», пустые "" и 5" дюймов.'
     sent, fragments = quotes.protect(text)
-    assert sent == 'Нажмите [[1]] в форме [[2]], цитата [[3]], пустые "" и 5" дюймов.'
+    # Метки в ёлочках: метки вида «Q1» GigaChat в длинном тексте выбрасывал, а «Q1» сохраняет как название
+    assert sent == 'Нажмите «Q1» в форме «Q2», цитата «Q3», пустые "" и 5" дюймов.'
     assert fragments == ["«Сохранить»", '"Заявка"', "«он сказал „да“»"]
     assert quotes.restore(sent, fragments) == (text, [], [])
-    # Модель обрамила метку кавычками, добавила пробелы, потеряла одну и выдумала лишнюю.
-    restored, missing, unknown = quotes.restore("Нажмите «[[1]]» в форме [[ 2 ]] и [[7]].", fragments)
-    assert restored == "Нажмите «Сохранить» в форме \"Заявка\" и [[7]]."
+    # Модель сменила кавычки у метки, добавила пробелы, убрала кавычки, потеряла одну и выдумала лишнюю.
+    restored, missing, unknown = quotes.restore('Нажмите "Q1" в форме « Q2 », потом Q1 и «Q7».', fragments)
+    assert restored == 'Нажмите «Сохранить» в форме "Заявка", потом «Сохранить» и «Q7».'
     assert (missing, unknown) == ([3], [7])
     # Непарная кавычка не захватывает следующий абзац.
     assert quotes.protect("Начало « без пары\n\nВторой «абзац».")[1] == ["«абзац»"]
+
+
+def test_text_with_q_numbers_is_not_protected():
+    import quotes
+    text = "Отчёт за Q3 готов, нажмите «Отправить»."
+    assert quotes.protect(text) == (text, [])  # иначе Q3 из текста спутали бы с меткой
 
 
 def test_pressed_keys_become_hotkeys_regardless_of_layout():
@@ -205,12 +212,12 @@ def test_bad_answers_are_retried_and_never_pasted():
         model = FakeModel(answers)
         return model, model.process(text, fix, cfg.common_rules, 6000, threading.Event())
 
-    model, result = run(["Нажмите [[1]], это 不便。", "Нажмите [[1]] сейчас."])
+    model, result = run(["Нажмите «Q1», это 不便。", "Нажмите «Q1» сейчас."])
     assert (result, model.calls) == ("Нажмите «Сохранить» сейчас.", 2)
-    model, result = run(["Нажмите сейчас.", "Нажмите [[1]] сейчас!"])  # метка пропала в первый раз
+    model, result = run(["Нажмите сейчас.", "Нажмите «Q1» сейчас!"])  # метка пропала в первый раз
     assert (result, model.calls) == ("Нажмите «Сохранить» сейчас!", 2)
     with pytest.raises(llm.LlmError, match="другом языке"):
-        run(["Нажмите [[1]] 不便", "Нажмите [[1]] 不便"])
+        run(["Нажмите «Q1» 不便", "Нажмите «Q1» 不便"])
     with pytest.raises(llm.LlmError, match="кавычках"):
         run(["Нажмите сейчас", "Нажмите сейчас"])
 

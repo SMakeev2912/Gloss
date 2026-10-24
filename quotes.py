@@ -1,8 +1,11 @@
 """Защита текста в кавычках: названия полей, кнопок, форм и цитаты модель не меняет.
 
-Перед отправкой каждый фрагмент в кавычках (вместе с кавычками) заменяется меткой [[1]], [[2]]…
+Перед отправкой каждый фрагмент в кавычках (вместе с кавычками) заменяется меткой «Q1», «Q2»…
 Модель видит только метки, а после ответа на их место возвращается исходный текст символ в символ.
 Поэтому изменить то, что в кавычках, модель не может, даже если нарушит инструкцию.
+
+Метки именно в ёлочках: GigaChat принимает их за названия и сохраняет, а метки вида [[1]],
+{{1}} или QUOTE_1 в длинном тексте считает мусором и выбрасывает (проверено на модели).
 
 Кавычки: «ёлочки», „лапки“, “английские” и прямые "двойные". Одинарные не трогаем: тот же
 символ стоит в апострофах (it's). Фрагмент не переходит через пустую строку: непарная кавычка
@@ -13,13 +16,14 @@ from __future__ import annotations
 import re
 
 _PAIRS = {"«": "»", "„": "“", "“": "”", '"': '"'}
-_TOKEN = "[[{}]]"
-# Метка в ответе модели; модель иногда добавляет пробелы или обрамляет метку кавычками.
-_TOKEN_RE = re.compile(r'([«"„“]?)\[\[\s*(\d+)\s*\]\]([»"“”]?)')
+_TOKEN = "«Q{}»"
+# Метка в ответе модели: модель иногда меняет кавычки вокруг неё, добавляет пробелы или убирает кавычки.
+_TOKEN_RE = re.compile(r'[«"„“]\s*Q(\d+)\s*[»"“”]|\bQ(\d+)\b')
+_BARE_TOKEN_RE = re.compile(r"\bQ\d+\b")
 
-RULE = ("Also: tokens like [[1]] stand for fixed fragments of the original text (names of fields, buttons, forms, "
-        "quotations). Copy every such token exactly as written, in its place in the sentence. Never change, "
-        "translate, split or remove it and never put quotation marks around it.")
+RULE = ("Also: tokens like «Q1» stand for fixed fragments of the original text (names of fields, buttons, forms, "
+        "quotations). Copy every such token exactly as written, with its quotation marks, in its place in the "
+        "sentence. Never change, translate, split or remove it.")
 
 
 def _closing(text: str, start: int) -> int:
@@ -42,7 +46,7 @@ def _closing(text: str, start: int) -> int:
 
 def protect(text: str) -> tuple[str, list[str]]:
     """Заменяет фрагменты в кавычках метками. Возвращает (текст с метками, фрагменты по порядку)."""
-    if "[[" in text:  # в самом тексте уже есть похожие метки: не путаем их с нашими
+    if _BARE_TOKEN_RE.search(text):  # в самом тексте есть «Q3» и подобное: не путаем это с нашими метками
         return text, []
     fragments: list[str] = []
     parts: list[str] = []
@@ -74,16 +78,12 @@ def restore(text: str, fragments: list[str]) -> tuple[str, list[int], list[int]]
     unknown: list[int] = []
 
     def put(match: re.Match) -> str:
-        number = int(match.group(2))
+        number = int(match.group(1) or match.group(2))
         if not 1 <= number <= len(fragments):
             unknown.append(number)
             return match.group(0)
         seen.add(number)
-        fragment = fragments[number - 1]
-        before, after = match.group(1), match.group(3)
-        if before and after:
-            return fragment  # модель обрамила метку кавычками, а они уже есть во фрагменте
-        return before + fragment + after
+        return fragments[number - 1]  # кавычки вокруг метки заменяются кавычками самого фрагмента
 
     restored = _TOKEN_RE.sub(put, text)
     missing = [n for n in range(1, len(fragments) + 1) if n not in seen]

@@ -271,7 +271,7 @@ class LlmClient:
 
     def _edit(self, core: str, mode: Mode, common_rules: str, temperature: float, cancel: threading.Event,
               protect_quotes: bool) -> str:
-        """Одна часть текста. Фрагменты в кавычках модель видит только как метки [[1]] (см. quotes.py)."""
+        """Одна часть текста. Фрагменты в кавычках модель видит только как метки «Q1» (см. quotes.py)."""
         sent, fragments = quotes.protect(core) if protect_quotes else (core, [])
         rules = f"{common_rules.strip()}\n{quotes.RULE}" if fragments else common_rules
         may_drop = mode.id in CONDENSING_MODES  # при сокращении предложение с меткой могли убрать целиком
