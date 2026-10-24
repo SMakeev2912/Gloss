@@ -1,0 +1,83 @@
+"""Диктовка: логика клавиши и цепочка «распознать → улучшить».
+
+Без WinAPI и tkinter: состояние клавиши и запись передаёт main.py, поэтому
+поведение покрывается тестами на поддельных часах и подставных функциях.
+
+Одно сочетание – два способа. Короткое нажатие (отпустили быстрее TAP_MAX_SEC)
+включает запись до следующего нажатия; удержание работает как рация:
+запись идёт, пока клавиша нажата.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import Enum
+from typing import Callable
+
+from llm import LlmError
+from mic import all_zero, has_speech
+
+TAP_MAX_SEC = 0.4
+
+
+class Action(Enum):
+    NONE = "none"
+    FINISH = "finish"   # закончить запись и обработать
+
+
+class Gesture:
+    """Автомат клавиши диктовки. Создаётся в момент первого нажатия: запись уже идёт.
+
+    RegisterHotKey сообщает только о нажатии, поэтому отпускание main.py узнаёт
+    опросом GetAsyncKeyState и передаёт сюда через poll().
+    """
+
+    def __init__(self, now: float, tap_max_sec: float = TAP_MAX_SEC):
+        self._pressed_at = now
+        self._tap_max = tap_max_sec
+        self.mode = "pressed"   # pressed / held / latched / done
+
+    def press(self, now: float) -> Action:
+        """Сочетание нажато ещё раз (пришёл WM_HOTKEY)."""
+        if self.mode == "latched":
+            self.mode = "done"
+            return Action.FINISH
+        return Action.NONE  # при удержании повторов не бывает (MOD_NOREPEAT), но на всякий случай
+
+    def poll(self, now: float, key_down: bool) -> Action:
+        if self.mode == "pressed":
+            quick = now - self._pressed_at <= self._tap_max
+            if key_down:
+                if not quick:
+                    self.mode = "held"
+            elif quick:
+                self.mode = "latched"
+            else:  # опрос опоздал, а держали дольше короткого нажатия – это удержание
+                self.mode = "done"
+                return Action.FINISH
+        elif self.mode == "held" and not key_down:
+            self.mode = "done"
+            return Action.FINISH
+        return Action.NONE
+
+
+@dataclass(frozen=True)
+class Outcome:
+    text: str
+    improved: bool
+    reason: str   # "" – всё хорошо; silence, mic_blocked, llm_failed
+
+
+def dictate(pcm: bytes, transcribe: Callable[[bytes], str], improve: Callable[[str], str]) -> Outcome:
+    """Запись → текст. Если модель недоступна, возвращает распознанный текст как есть,
+    чтобы надиктованное не потерялось. Cancelled пробрасывается."""
+    if all_zero(pcm):
+        return Outcome("", False, "mic_blocked")
+    if not has_speech(pcm):
+        return Outcome("", False, "silence")
+    raw = transcribe(pcm).strip()
+    if not raw:
+        return Outcome("", False, "silence")
+    try:
+        return Outcome(improve(raw).strip(), True, "")
+    except LlmError:
+        return Outcome(raw, False, "llm_failed")

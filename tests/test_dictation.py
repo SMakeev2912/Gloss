@@ -8,6 +8,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+import pytest  # noqa: E402
+
+from dictation import Action, Gesture, Outcome, dictate  # noqa: E402
+from llm import BackendUnavailable, Cancelled  # noqa: E402
 from mic import all_zero, has_speech, level_bar, mic_error_text, rms, split_on_pauses, to_wav  # noqa: E402
 
 RATE = 16000
@@ -81,3 +85,73 @@ def test_mic_error_texts():
 def test_all_zero():
     assert all_zero(silence(1))
     assert not all_zero(silence(1) + b"\x01\x00")
+
+
+# --- Клавиша: короткое нажатие или удержание ---
+
+def test_tap_latches_until_next_press():
+    g = Gesture(now=0.0)
+    assert g.poll(0.1, key_down=False) is Action.NONE and g.mode == "latched"
+    assert g.poll(30.0, key_down=False) is Action.NONE
+    assert g.press(31.0) is Action.FINISH and g.mode == "done"
+
+
+def test_hold_finishes_on_release():
+    g = Gesture(now=0.0)
+    assert g.poll(0.2, key_down=True) is Action.NONE and g.mode == "pressed"
+    assert g.poll(0.5, key_down=True) is Action.NONE and g.mode == "held"
+    assert g.poll(4.0, key_down=False) is Action.FINISH and g.mode == "done"
+
+
+def test_late_first_poll_after_long_hold_counts_as_hold():
+    g = Gesture(now=0.0)
+    assert g.poll(0.9, key_down=False) is Action.FINISH  # опрос опоздал, клавишу держали дольше 0,4 с
+
+
+def test_press_while_held_is_ignored():
+    g = Gesture(now=0.0)
+    g.poll(0.5, key_down=True)
+    assert g.press(0.6) is Action.NONE and g.mode == "held"
+
+
+def test_latched_ignores_key_state_until_press():
+    g = Gesture(now=0.0)
+    g.poll(0.1, key_down=False)
+    assert g.poll(5.0, key_down=True) is Action.NONE and g.mode == "latched"  # клавиша нажата, WM_HOTKEY ещё не пришёл
+
+
+# --- Распознать и улучшить ---
+
+def asr(text):
+    return lambda pcm: text
+
+
+def test_silence_skips_recognition():
+    calls = []
+    out = dictate(silence(3) + bytes([1, 0]), lambda p: calls.append("asr") or "x", lambda t: t)
+    assert out == Outcome("", False, "silence") and calls == []
+
+
+def test_all_zero_means_mic_blocked():
+    assert dictate(silence(3), asr("x"), lambda t: t).reason == "mic_blocked"
+
+
+def test_empty_transcript_is_silence():
+    assert dictate(tone(2), asr("  "), lambda t: t).reason == "silence"
+
+
+def test_improved_text():
+    assert dictate(tone(2), asr("ну короче привет"), lambda t: "Привет.") == Outcome("Привет.", True, "")
+
+
+def test_llm_failure_falls_back_to_raw():
+    def broken(_):
+        raise BackendUnavailable("нет")
+    assert dictate(tone(2), asr("ну привет"), broken) == Outcome("ну привет", False, "llm_failed")
+
+
+def test_cancel_propagates():
+    def cancelled(_):
+        raise Cancelled
+    with pytest.raises(Cancelled):
+        dictate(tone(2), asr("текст"), cancelled)
