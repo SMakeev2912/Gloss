@@ -138,12 +138,17 @@ class OnboardingWindow(Chrome):
         panel = widgets.Panel(self.body, padding=(18, 12))
         panel.pack(fill="x", pady=(0, self.px(14)))
         rows = [(str(m.hotkey), m.name) for m in self._modes()]
+        dictation = self.cfg.dictation.mode
+        if dictation.enabled and dictation.hotkey:
+            rows.append((str(dictation.hotkey), f"{dictation.name}: нажмите и говорите, затем нажмите ещё раз"))
         rows.append(("Esc", "отменить, пока идёт обработка"))
         widgets.hotkey_table(panel.inner, rows).pack(fill="x")
         for line in (
             "Значок G живёт в области уведомлений рядом с часами (может прятаться под стрелкой «^»). "
             "В его меню: список сочетаний клавиш, обновления, настройки и это окно («Как пользоваться»). "
             "Сочетания можно поменять: «Настройки» → «Сочетания клавиш…».",
+            "Диктовка вставляет текст туда, где стоит курсор. Если держать сочетание, запись идёт, пока клавиши "
+            "нажаты. Речь распознаётся прямо на компьютере, а слова-паразиты и оговорки Gloss убирает сам.",
             "Значок оранжевый, когда Gloss готов. Во время обработки вокруг буквы появляется кольцо, "
             "а серый значок с красной точкой означает, что нейросеть недоступна.",
         ):
