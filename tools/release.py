@@ -70,8 +70,11 @@ def ask_points() -> list[str]:
     return items
 
 
-def wait_for_release(tag: str, repo_url: str) -> None:
-    """Ждёт, пока GitHub Actions соберёт и опубликует выпуск (если есть gh)."""
+def wait_for_release(tag: str, commit: str, repo_url: str) -> None:
+    """Ждёт, пока GitHub Actions соберёт и опубликует выпуск (если есть gh).
+
+    Запуск ищем по коммиту выпуска, а не по тегу: в истории Actions может остаться старый
+    запуск с тем же тегом, и тогда скрипт отчитался бы о чужой сборке."""
     if not shutil.which("gh"):
         print(f"Сборка идёт здесь: {repo_url}/actions")
         return
@@ -79,8 +82,8 @@ def wait_for_release(tag: str, repo_url: str) -> None:
     import time
     run_id = None
     for _ in range(30):  # запуск появляется не сразу после push
-        found = json.loads(run("gh", "run", "list", "--branch", tag, "--limit", "1", "--json", "databaseId",
-                               capture=True) or "[]")
+        found = json.loads(run("gh", "run", "list", "--commit", commit, "--event", "push", "--limit", "1",
+                               "--json", "databaseId", capture=True) or "[]")
         if found:
             run_id = str(found[0]["databaseId"])
             break
@@ -127,7 +130,7 @@ def main() -> None:
     run("git", "push", "-q", "origin", "main", f"v{new}")
     repo_url = re.sub(r"^git@github\.com:", "https://github.com/",
                       run("git", "remote", "get-url", "origin", capture=True)).removesuffix(".git")
-    wait_for_release(f"v{new}", repo_url)
+    wait_for_release(f"v{new}", run("git", "rev-parse", "HEAD", capture=True), repo_url)
 
 
 def _own_console() -> bool:
