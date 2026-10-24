@@ -45,7 +45,7 @@ class HotkeysWindow(Chrome):
         self.set_titles("Сочетания клавиш", "Нажмите «Изменить», а затем новое сочетание. Изменения применяются сразу.")
         self.buttons(("Готово", self.close), ("Вернуть по умолчанию", self._reset))
         self._render()
-        self.center(640, 380)
+        self.center(640, 420)
         self.window.lift()
         self.window.focus_force()
 
@@ -66,7 +66,7 @@ class HotkeysWindow(Chrome):
         table = panel.inner
         self._live: tk.Label | None = None
         self._vars = []
-        for row, mode in enumerate(self.app.cfg.modes):
+        for row, mode in enumerate(self.app.cfg.all_modes):
             if row:
                 tk.Frame(table, bg=COLORS["line"], height=max(1, self.px(1))).grid(
                     row=2 * row - 1, column=0, columnspan=3, sticky="ew", pady=self.px(2))
@@ -138,7 +138,7 @@ class HotkeysWindow(Chrome):
             self._render()
             return "break"
         mode_id = self.capturing
-        other = next((m for m in self.app.cfg.modes if m.id != mode_id and m.hotkey and m.hotkey.text == hotkey.text),
+        other = next((m for m in self.app.cfg.all_modes if m.id != mode_id and m.hotkey and m.hotkey.text == hotkey.text),
                      None)
         if other is not None:
             self._say(f"{hotkey} уже у режима «{other.name}». Выберите другое сочетание.", "warn")

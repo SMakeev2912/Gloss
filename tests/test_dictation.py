@@ -10,7 +10,7 @@ sys.path.insert(0, str(ROOT))
 
 import pytest  # noqa: E402
 
-from dictation import Action, Gesture, Outcome, dictate  # noqa: E402
+from dictation import Action, Gesture, Outcome, dictate, paste_target_ok  # noqa: E402
 from llm import BackendUnavailable, Cancelled  # noqa: E402
 from mic import all_zero, has_speech, level_bar, mic_error_text, rms, split_on_pauses, to_wav  # noqa: E402
 
@@ -155,3 +155,10 @@ def test_cancel_propagates():
         raise Cancelled
     with pytest.raises(Cancelled):
         dictate(tone(2), asr("текст"), cancelled)
+
+
+def test_target_window_changed_keeps_result_in_clipboard():
+    assert paste_target_ok(100, 100)
+    assert not paste_target_ok(100, 200)
+    assert not paste_target_ok(100, None)
+    assert not paste_target_ok(None, None)

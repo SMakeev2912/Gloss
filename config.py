@@ -105,6 +105,11 @@ class Config:
     modes: tuple[Mode, ...]
     dictation: DictationSettings
 
+    @property
+    def all_modes(self) -> tuple[Mode, ...]:
+        """Режимы для выделенного текста и диктовка последней: для меню и окна сочетаний."""
+        return (*self.modes, self.dictation.mode)
+
     def mode(self, mode_id: str) -> Mode | None:
         if mode_id == self.dictation.mode.id:
             return self.dictation.mode
@@ -268,11 +273,17 @@ def _set_mode_values(path: Path, values: dict[str, dict]) -> None:
 
 
 def set_mode_enabled(path: Path, mode_id: str, enabled: bool) -> None:
-    _set_mode_values(path, {mode_id: {"enabled": enabled}})
+    if mode_id == "dictation":
+        set_dictation_values(path, {"enabled": enabled})
+    else:
+        _set_mode_values(path, {mode_id: {"enabled": enabled}})
 
 
 def set_mode_hotkey(path: Path, mode_id: str, hotkey: str) -> None:
-    _set_mode_values(path, {mode_id: {"hotkey": hotkey}})
+    if mode_id == "dictation":
+        set_dictation_values(path, {"hotkey": hotkey})
+    else:
+        _set_mode_values(path, {mode_id: {"hotkey": hotkey}})
 
 
 def reset_hotkeys(path: Path) -> None:

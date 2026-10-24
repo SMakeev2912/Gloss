@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+import queue
 import subprocess
 import sys
 import threading
@@ -23,15 +24,18 @@ import pystray
 
 import changelog
 import config
+import speech
 import system
 import winapi
 from capture import Clipboard, ClipboardError, TextCapture, release_keys
 from config import APP_NAME, VERSION, Config, ConfigError
+from dictation import Action, Gesture, dictate, paste_target_ok
 from hotkeys import HotkeyManager
 from hotkeys_window import HotkeysWindow
 import engine
 import sysinfo
 from llm import BackendUnavailable, Cancelled, Health, LlmClient, LlmError, ModelMissing, make_client
+from mic import MicError, Recorder, level_bar
 from updater import UpdateError
 import uninstaller
 import updater
@@ -86,6 +90,9 @@ class App:
         self._job_lock = threading.Lock()
         self._cancel = threading.Event()
         self._job_llm: LlmClient | None = None
+        self._dictating = False
+        self._dictation_presses: queue.SimpleQueue[float] = queue.SimpleQueue()  # повторные нажатия во время записи
+        self._speech_installing = False
         self._config_error: str | None = None
         self.available_version = self._remembered_update()  # найденная, но ещё не установленная версия
         self._update_wake = threading.Event()
@@ -146,12 +153,14 @@ class App:
     def _startup_check(self) -> None:
         if self.cfg.backend == "builtin" and not engine.is_installed():
             self._install_engine()  # после обновления Gloss может требоваться новая сборка движка
+        if not speech.is_installed():  # у тех, кто обновился с версии без диктовки
+            threading.Thread(target=self._install_speech, name="speech-install", daemon=True).start()
         health = self.check_model(notify=False)
         if not health.ok:
             self.tray.notify(health.status, health.message)
             return
         if not self.after_update:
-            hotkeys = ", ".join(f"{m.hotkey}: {m.name}" for m in self.cfg.modes if m.enabled and m.hotkey)
+            hotkeys = ", ".join(f"{m.hotkey}: {m.name}" for m in self.cfg.all_modes if m.enabled and m.hotkey)
             self.tray.notify(f"{APP_NAME} готов", hotkeys or "Нет активных сочетаний клавиш. Настройте их в config.json.")
         if self.cfg.model.preload_on_start:
             self.llm.preload()
@@ -167,6 +176,28 @@ class App:
         except Exception:  # проверка модели и предзагрузка после этого всё равно должны пройти
             log.exception("Движок не установлен")
             self.tray.notify("Не удалось установить движок нейросети", "Подробности в журнале Gloss.")
+
+    def _install_speech(self) -> None:
+        if self._speech_installing:
+            return
+        self._speech_installing = True
+        log.info("Распознавание речи отсутствует или устарело, устанавливаю %s", speech.ASR_BUILD)
+        self.tray.notify("Загружаю распознавание речи",
+                         f"Около {speech.download_mb(sysinfo.arch()):.0f} МБ. Диктовка заработает, когда загрузка закончится.")
+        try:
+            speech.install(sysinfo.arch(), lambda fraction, detail: None, threading.Event())
+        except UpdateError as exc:
+            log.warning("Распознавание речи не установлено: %s", exc)
+            self.tray.notify("Не удалось загрузить распознавание речи", str(exc))
+        except Exception:
+            log.exception("Распознавание речи не установлено")
+            self.tray.notify("Не удалось загрузить распознавание речи", "Подробности в журнале Gloss.")
+        else:
+            mode = self.cfg.dictation.mode
+            self.tray.notify("Диктовка готова", f"Поставьте курсор в поле ввода, нажмите {mode.hotkey} и говорите."
+                             if mode.enabled and mode.hotkey else "Включить её можно в меню значка → Настройки.")
+        finally:
+            self._speech_installing = False
 
     # --- Обновления и окна ---
 
@@ -302,7 +333,7 @@ class App:
     # --- Настройки и хоткеи ---
 
     def _register_hotkeys(self) -> dict[str, str]:
-        bindings = {m.id: m.hotkey for m in self.cfg.modes if m.enabled and m.hotkey}
+        bindings = {m.id: m.hotkey for m in self.cfg.all_modes if m.enabled and m.hotkey}
         errors = self.hotkeys.register(bindings)
         return {mode_id: f"{self.cfg.mode(mode_id).name}: {text}" for mode_id, text in errors.items()}
 
@@ -331,7 +362,7 @@ class App:
         if notify and errors:
             self.tray.notify("Настройки применены, но не все сочетания клавиш доступны", "\n".join(errors.values()))
         elif notify:
-            active = sum(1 for m in new_cfg.modes if m.enabled and m.hotkey)
+            active = sum(1 for m in new_cfg.all_modes if m.enabled and m.hotkey)
             self.tray.notify("Настройки применены", f"Активных режимов: {active}. Модель: {new_cfg.model.name}.")
         self._update_tray()
         if model_changed:
@@ -381,7 +412,7 @@ class App:
             return lambda: threading.Thread(target=action, daemon=True).start()
 
         def toggle_items():
-            for mode in self.cfg.modes:
+            for mode in self.cfg.all_modes:
                 yield pystray.MenuItem(
                     mode.name,
                     background(lambda mode_id=mode.id: self.toggle_mode(mode_id)),
@@ -420,7 +451,7 @@ class App:
     # Список режимов в меню трея. У pystray вложенное динамическое меню нельзя
     # «развернуть» на верхний уровень, поэтому держим 9 слотов и скрываем лишние.
     def _hotkey_modes(self) -> list:
-        return [m for m in self.cfg.modes if m.hotkey]
+        return [m for m in self.cfg.all_modes if m.hotkey]
 
     def _hotkey_label(self, index: int) -> str:
         modes = self._hotkey_modes()
@@ -435,7 +466,10 @@ class App:
             if index >= len(modes):
                 return
             mode = modes[index]
-            if mode.enabled:
+            if mode.enabled and mode.id == "dictation":
+                self.tray.notify(mode.name, f"Поставьте курсор в поле ввода, нажмите {mode.hotkey} и говорите. "
+                                            "Чтобы закончить, нажмите ещё раз или отпустите, если держали.")
+            elif mode.enabled:
                 self.tray.notify(mode.name, f"Выделите текст в любой программе и нажмите {mode.hotkey}.")
             else:
                 self.tray.notify(mode.name, "Режим выключен. Включить: меню значка → Настройки → Режимы.")
@@ -445,11 +479,18 @@ class App:
 
     def _on_hotkey(self, mode_id: str) -> None:
         """Вызывается в потоке хоткеев – только запускаем задачу."""
+        if mode_id == "dictation" and self._dictating:
+            self._dictation_presses.put(time.monotonic())  # повторное нажатие заканчивает запись
+            return
         if not self._job_lock.acquire(blocking=False):
             log.info("Хоткей проигнорирован: обработка уже идёт")
             return
         target = winapi.GetForegroundWindow()
-        threading.Thread(target=self._run_job, args=(mode_id, target), name="job", daemon=True).start()
+        if mode_id == "dictation":
+            self._dictating = True
+            threading.Thread(target=self._run_dictation, args=(target,), name="job", daemon=True).start()
+        else:
+            threading.Thread(target=self._run_job, args=(mode_id, target), name="job", daemon=True).start()
 
     def _on_escape(self) -> None:
         if self.busy:
@@ -558,6 +599,123 @@ class App:
             if llm is not self.llm:  # настройки сменились во время обработки
                 llm.close()
             self._job_llm = None
+            self._job_lock.release()
+
+    # --- Диктовка ---
+
+    def _say(self, title: str, detail: str) -> None:
+        """Короткое сообщение: на плашке у курсора, а если плашка выключена – уведомлением."""
+        if self.cfg.ui.show_overlay:
+            self.ui.flash(title, detail)
+        else:
+            self.tray.notify(title, detail)
+
+    def _record(self, recorder: Recorder, mode, max_sec: int) -> None:
+        """Ждёт конца записи: повторного нажатия, отпускания клавиши, Esc или предела длины."""
+        while not self._dictation_presses.empty():  # нажатия, оставшиеся от прошлой записи
+            self._dictation_presses.get_nowait()
+        gesture = Gesture(time.monotonic())
+        shown = 0.0
+        while not self._cancel.is_set():
+            now = time.monotonic()
+            action = Action.NONE
+            while not self._dictation_presses.empty():
+                if gesture.press(self._dictation_presses.get_nowait()) is Action.FINISH:
+                    action = Action.FINISH
+            if action is Action.NONE:
+                action = gesture.poll(now, bool(winapi.GetAsyncKeyState(mode.hotkey.vk) & 0x8000))
+            if action is Action.FINISH:
+                return
+            if recorder.elapsed() >= max_sec:
+                log.info("Запись остановлена по пределу %d с", max_sec)
+                self.tray.notify("Запись остановлена", f"Прошло {max_sec // 60} мин. Обрабатываю то, что успел записать.")
+                return
+            if now - shown >= 0.1:
+                seconds = int(recorder.elapsed())
+                self.ui.update_progress(f"{seconds // 60}:{seconds % 60:02d} {level_bar(recorder.level())} · Esc: отменить")
+                shown = now
+            time.sleep(0.02)
+
+    def _run_dictation(self, target) -> None:
+        cfg, llm, capture = self.cfg, self.llm, self.capture
+        mode = cfg.dictation.mode
+        title = f"Gloss · {mode.name}"
+        self._job_llm = llm
+        self._cancel.clear()
+        recorder: Recorder | None = None
+        try:
+            if self._speech_installing:
+                self._say(title, "Распознавание речи ещё загружается")
+                return
+            if not speech.is_installed():
+                threading.Thread(target=self._install_speech, name="speech-install", daemon=True).start()
+                return
+            recorder = Recorder()
+            try:
+                recorder.start()
+            except MicError as exc:
+                self.tray.notify(str(exc), "Проверьте, что микрофон подключён и выбран в параметрах звука Windows.")
+                return
+            self._set_busy(True, f"{mode.name}: слушаю")
+            self._record(recorder, mode, cfg.dictation.max_record_sec)
+            pcm = recorder.stop()
+            if self._cancel.is_set():
+                raise Cancelled
+            seconds = len(pcm) / 32000
+            self.ui.update_progress("Esc: отменить", title=f"{title}: распознаю")
+            started = time.monotonic()
+            timings: dict[str, float] = {}
+
+            def transcribe(audio: bytes) -> str:
+                text = speech.transcribe(audio, self._cancel)
+                timings["asr"] = time.monotonic() - started
+                return text
+
+            def improve(text: str) -> str:
+                self.ui.update_progress("Esc: отменить", title=f"{title}: улучшаю")
+                return llm.process(text, mode, cfg.common_rules, cfg.max_chunk_chars, self._cancel,
+                                   protect_quotes=False)
+
+            outcome = dictate(pcm, transcribe, improve)
+            self._set_busy(False)
+            log.info("Диктовка: запись %.1f с, распознавание %.1f с, всего %.1f с, итог=%s",
+                     seconds, timings.get("asr", 0), time.monotonic() - started, outcome.reason or "ok")
+            if outcome.reason == "silence":
+                self._say(title, "Не расслышал")
+                return
+            if outcome.reason == "mic_blocked":
+                self.tray.notify("Windows не даёт доступ к микрофону",
+                                 "Разрешите его: Параметры → Конфиденциальность и защита → Микрофон.")
+                return
+
+            end = winapi.GetForegroundWindow()
+            elevated = winapi.is_window_elevated(end) and not winapi.is_current_process_elevated()
+            if not paste_target_ok(target, end) or elevated:
+                capture.put_result(outcome.text)
+                log.info("Окно сменилось или запущено от администратора – текст оставлен в буфере")
+                self.tray.notify("Текст в буфере обмена", "Окно сменилось во время записи. Вставьте текст через Ctrl+V.")
+                return
+            capture.paste_text(outcome.text, mode.hotkey.vk if mode.hotkey else None, cfg.capture)
+            if outcome.reason == "llm_failed":
+                self.tray.notify("Вставил текст без улучшения", "Модель сейчас недоступна, текст вставлен как распознан.")
+
+        except Cancelled:
+            log.info("Диктовка отменена пользователем")
+            self.tray.notify("Отменено", "Ничего не вставлено.")
+        except (speech.SpeechMissing, speech.SpeechError) as exc:
+            log.warning("Распознавание не удалось: %s", exc)
+            self.tray.notify("Не удалось распознать речь", "Подробности в журнале Gloss.")
+        except Exception:
+            log.exception("Непредвиденная ошибка при диктовке")
+            self.tray.notify("Gloss: ошибка", "Непредвиденная ошибка, ничего не вставлено. Подробности в журнале.")
+        finally:
+            if recorder is not None:
+                recorder.stop()  # микрофон освобождается при любой ошибке
+            self._set_busy(False)
+            if llm is not self.llm:
+                llm.close()
+            self._job_llm = None
+            self._dictating = False
             self._job_lock.release()
 
 

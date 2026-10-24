@@ -278,3 +278,18 @@ def test_set_dictation_values_without_section(tmp_path):
 def test_shipped_config_json_matches_defaults():
     shipped = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
     assert shipped["dictation"] == config.default_config()["dictation"]
+
+
+def test_mode_setters_route_dictation(tmp_path):
+    path = tmp_path / "config.json"
+    config._write_json(path, config.default_config())
+    config.set_mode_hotkey(path, "dictation", "ctrl+alt+d")
+    config.set_mode_enabled(path, "dictation", False)
+    cfg = config.load(path)
+    assert cfg.dictation.mode.hotkey.text == "Ctrl+Alt+D" and not cfg.dictation.mode.enabled
+    assert "dictation" not in [m.get("id") for m in config.read_raw(path)["modes"]]
+
+
+def test_all_modes_ends_with_dictation(tmp_path):
+    cfg = config.defaults(tmp_path / "config.json")
+    assert [m.id for m in cfg.all_modes] == ["fix", "shorten", "business", "dictation"]

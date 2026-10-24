@@ -60,6 +60,11 @@ class Gesture:
         return Action.NONE
 
 
+def paste_target_ok(start_hwnd, end_hwnd) -> bool:
+    """Вставлять, только если активно то же окно, что и в начале записи: иначе текст попал бы в чужое окно."""
+    return bool(start_hwnd) and start_hwnd == end_hwnd
+
+
 @dataclass(frozen=True)
 class Outcome:
     text: str
