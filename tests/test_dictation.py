@@ -219,3 +219,8 @@ def test_model_writing_a_letter_instead_of_cleaning_is_rejected():
 def test_slightly_longer_cleanup_is_accepted():
     raw = "ну в общем завтра в три"
     assert dictate(tone(2), asr(raw), lambda t: "В общем, завтра в три часа.").improved
+
+
+def test_quiet_laptop_mic_speech_is_heard():
+    assert has_speech(silence(1) + tone(1, amplitude=400))      # тихая речь, около -41 дБ
+    assert not has_speech(tone(3, amplitude=100))               # фоновый шум комнаты, около -53 дБ
