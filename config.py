@@ -296,7 +296,10 @@ def reset_hotkeys(path: Path) -> None:
 def set_dictation_values(path: Path, values: dict) -> None:
     """Меняет только переданные ключи секции dictation; если секции нет, создаёт её со значениями по умолчанию."""
     raw = read_raw(path)
-    section = raw.get("dictation") if isinstance(raw.get("dictation"), dict) else copy.deepcopy(DEFAULT_DICTATION)
+    section = raw.get("dictation")
+    if not isinstance(section, dict):
+        # Сочетание по умолчанию не записываем: если его занял свой режим, разбор оставит диктовку без него.
+        section = {k: v for k, v in copy.deepcopy(DEFAULT_DICTATION).items() if k != "hotkey"}
     section.update(values)
     raw["dictation"] = section
     _write_json(path, raw)
@@ -425,7 +428,8 @@ def _parse_modes(raw_modes, default_temperature: float, v: _Validator) -> tuple[
     return tuple(modes)
 
 
-def _parse_dictation(d: dict, modes: tuple[Mode, ...], v: _Validator) -> DictationSettings:
+def _parse_dictation(d: dict, modes: tuple[Mode, ...], v: _Validator, explicit: bool) -> DictationSettings:
+    """explicit – секция dictation есть в config.json (её писал пользователь или Gloss), а не взята по умолчанию."""
     name = v.string(d, "name", "dictation") or DEFAULT_DICTATION["name"]
     enabled = v.boolean(d, "enabled", "dictation")
     hotkey = None
@@ -441,6 +445,11 @@ def _parse_dictation(d: dict, modes: tuple[Mode, ...], v: _Validator) -> Dictati
     if hotkey and enabled:
         for mode in modes:
             if mode.enabled and mode.hotkey and (mode.hotkey.modifiers, mode.hotkey.vk) == (hotkey.modifiers, hotkey.vk):
+                if not explicit:
+                    # Секции ещё нет (обновление): сочетание по умолчанию уже занято своим режимом пользователя.
+                    log.warning("%s занята режимом «%s», диктовка остаётся без сочетания", hotkey, mode.name)
+                    hotkey = None
+                    break
                 v.errors.append(f"{hotkey} назначена и режиму «{mode.name}», и режиму «{name}»")
     mode = Mode(
         id="dictation",
@@ -508,7 +517,8 @@ def parse(raw: dict, path: Path) -> Config:
     protect_quotes = v.boolean(top, "protect_quotes", "config")
     common_rules = v.text(top["common_rules"], "common_rules")
     modes = _parse_modes(top["modes"], model.temperature, v)
-    dictation = _parse_dictation(v.section(raw, "dictation", defaults["dictation"]), modes, v)
+    dictation = _parse_dictation(v.section(raw, "dictation", defaults["dictation"]), modes, v,
+                                 explicit=isinstance(raw.get("dictation"), dict) and "hotkey" in raw["dictation"])
 
     if v.errors:
         raise ConfigError("\n".join(v.errors))

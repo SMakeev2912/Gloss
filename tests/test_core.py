@@ -293,3 +293,27 @@ def test_mode_setters_route_dictation(tmp_path):
 def test_all_modes_ends_with_dictation(tmp_path):
     cfg = config.defaults(tmp_path / "config.json")
     assert [m.id for m in cfg.all_modes] == ["fix", "shorten", "business", "dictation"]
+
+
+def test_upgrade_with_custom_mode_on_dictation_hotkey_keeps_config(tmp_path):
+    # у пользователя 1.0.0 свой режим на Ctrl+Alt+Space, а секции dictation ещё нет
+    raw = config.default_config()
+    del raw["dictation"]
+    raw["modes"].append({"id": "translate-en", "name": "На английский", "hotkey": "ctrl+alt+space",
+                         "prompt": "Task: translate the text into English."})
+    cfg = config.parse(raw, tmp_path / "config.json")
+    assert cfg.mode("translate-en").hotkey.text == "Ctrl+Alt+Space"
+    assert cfg.dictation.mode.hotkey is None  # диктовка без сочетания, его можно задать в окне
+
+
+def test_toggle_dictation_after_upgrade_with_clash_keeps_config(tmp_path):
+    path = tmp_path / "config.json"
+    raw = config.default_config()
+    del raw["dictation"]
+    raw["modes"].append({"id": "translate-en", "name": "На английский", "hotkey": "ctrl+alt+space",
+                         "prompt": "Task: translate the text into English."})
+    config._write_json(path, raw)
+    config.set_mode_enabled(path, "dictation", False)
+    config.set_mode_enabled(path, "dictation", True)
+    cfg = config.load(path)  # без ConfigError
+    assert cfg.dictation.mode.enabled and cfg.dictation.mode.hotkey is None
