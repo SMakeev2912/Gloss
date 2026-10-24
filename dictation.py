@@ -17,6 +17,7 @@ from llm import LlmError
 from mic import all_zero, has_speech
 
 TAP_MAX_SEC = 0.4
+RELEASE_SEC = 0.08  # столько клавиша должна быть отпущена, чтобы это считалось отпусканием
 
 
 class Action(Enum):
@@ -29,38 +30,55 @@ class Gesture:
 
     RegisterHotKey сообщает только о нажатии, поэтому отпускание main.py узнаёт
     опросом GetAsyncKeyState и передаёт сюда через poll().
+
+    Некоторые клавиатуры при удержании присылают сочетание снова, несмотря на MOD_NOREPEAT,
+    и на мгновение «отпускают» клавишу между повторами. Поэтому, пока клавишу держат, новые
+    нажатия не считаются, а отпускание засчитывается, только если оно длится RELEASE_SEC.
     """
 
-    def __init__(self, now: float, tap_max_sec: float = TAP_MAX_SEC):
+    def __init__(self, now: float, tap_max_sec: float = TAP_MAX_SEC, release_sec: float = RELEASE_SEC):
         self._pressed_at = now
         self._tap_max = tap_max_sec
+        self._release = release_sec
+        self._up_since: float | None = None   # с какого опроса клавиша отпущена
+        self._seen_down = False
+        self.ignored = 0        # сколько повторов сочетания пропущено при удержании
         self.mode = "pressed"   # pressed / held / latched / done
 
     def press(self, now: float) -> Action:
         """Сочетание нажато ещё раз (пришёл WM_HOTKEY).
 
-        С MOD_NOREPEAT новое нажатие приходит только после отпускания клавиши, поэтому в любом
-        состоянии записи оно означает «закончить», даже если отпускание опрос ещё не заметил."""
+        Новым нажатием это считается, если клавишу перед ним отпускали: после короткого
+        нажатия или когда опрос уже видел её отпущенной. Иначе это повтор при удержании."""
         if self.mode == "done":
+            return Action.NONE
+        if self.mode == "latched" or (self.mode == "pressed" and self._up_since is not None):
+            self.mode = "done"
+            return Action.FINISH
+        self.ignored += 1
+        return Action.NONE
+
+    def poll(self, now: float, key_down: bool) -> Action:
+        if self.mode not in ("pressed", "held"):
+            return Action.NONE
+        if key_down:
+            self._seen_down = True
+            self._up_since = None
+            if self.mode == "pressed" and now - self._pressed_at > self._tap_max:
+                self.mode = "held"
+            return Action.NONE
+        if self._up_since is None:
+            self._up_since = now
+            if not self._seen_down and now - self._pressed_at > self._tap_max:
+                self.mode = "done"  # опрос опоздал (долго открывался микрофон), а держали дольше короткого нажатия
+                return Action.FINISH
+        if now - self._up_since < self._release:
+            return Action.NONE
+        if self.mode == "pressed" and self._up_since - self._pressed_at <= self._tap_max:
+            self.mode = "latched"
             return Action.NONE
         self.mode = "done"
         return Action.FINISH
-
-    def poll(self, now: float, key_down: bool) -> Action:
-        if self.mode == "pressed":
-            quick = now - self._pressed_at <= self._tap_max
-            if key_down:
-                if not quick:
-                    self.mode = "held"
-            elif quick:
-                self.mode = "latched"
-            else:  # опрос опоздал, а держали дольше короткого нажатия – это удержание
-                self.mode = "done"
-                return Action.FINISH
-        elif self.mode == "held" and not key_down:
-            self.mode = "done"
-            return Action.FINISH
-        return Action.NONE
 
 
 def paste_target_ok(start_hwnd, end_hwnd) -> bool:

@@ -91,16 +91,42 @@ def test_all_zero():
 
 def test_tap_latches_until_next_press():
     g = Gesture(now=0.0)
-    assert g.poll(0.1, key_down=False) is Action.NONE and g.mode == "latched"
+    assert g.poll(0.1, key_down=False) is Action.NONE and g.mode == "pressed"  # отпускание ещё проверяется
+    assert g.poll(0.2, key_down=False) is Action.NONE and g.mode == "latched"
     assert g.poll(30.0, key_down=False) is Action.NONE
     assert g.press(31.0) is Action.FINISH and g.mode == "done"
+
+
+def test_tap_released_just_before_limit_latches():
+    g = Gesture(now=0.0)
+    g.poll(0.35, key_down=False)
+    assert g.poll(0.45, key_down=False) is Action.NONE and g.mode == "latched"  # отпустили в 0,35 с
 
 
 def test_hold_finishes_on_release():
     g = Gesture(now=0.0)
     assert g.poll(0.2, key_down=True) is Action.NONE and g.mode == "pressed"
     assert g.poll(0.5, key_down=True) is Action.NONE and g.mode == "held"
-    assert g.poll(4.0, key_down=False) is Action.FINISH and g.mode == "done"
+    assert g.poll(4.0, key_down=False) is Action.NONE and g.mode == "held"
+    assert g.poll(4.1, key_down=False) is Action.FINISH and g.mode == "done"
+
+
+def test_autorepeat_while_held_is_ignored():
+    # некоторые клавиатуры при удержании присылают сочетание снова, несмотря на MOD_NOREPEAT
+    g = Gesture(now=0.0)
+    g.poll(0.2, key_down=True)
+    assert g.press(0.3) is Action.NONE
+    g.poll(0.5, key_down=True)
+    assert g.press(0.55) is Action.NONE and g.press(0.58) is Action.NONE
+    assert g.mode == "held" and g.ignored == 3
+
+
+def test_brief_key_up_while_held_is_ignored():
+    g = Gesture(now=0.0)
+    g.poll(0.5, key_down=True)
+    assert g.poll(1.0, key_down=False) is Action.NONE
+    assert g.poll(1.02, key_down=True) is Action.NONE
+    assert g.poll(1.1, key_down=False) is Action.NONE and g.mode == "held"
 
 
 def test_late_first_poll_after_long_hold_counts_as_hold():
@@ -108,24 +134,24 @@ def test_late_first_poll_after_long_hold_counts_as_hold():
     assert g.poll(0.9, key_down=False) is Action.FINISH  # опрос опоздал, клавишу держали дольше 0,4 с
 
 
-def test_any_second_press_finishes():
-    # MOD_NOREPEAT: новое нажатие приходит только после отпускания, значит, это всегда конец записи
-    held = Gesture(now=0.0)
-    held.poll(0.5, key_down=True)
-    assert held.press(0.6) is Action.FINISH and held.mode == "done"
-    double_tap = Gesture(now=0.0)
-    assert double_tap.press(0.2) is Action.FINISH  # второе нажатие раньше первого опроса
+def test_quick_double_tap_finishes():
+    g = Gesture(now=0.0)
+    g.poll(0.1, key_down=False)  # отпустили, отпускание ещё проверяется
+    assert g.press(0.15) is Action.FINISH and g.mode == "done"
 
 
 def test_press_after_done_does_nothing():
     g = Gesture(now=0.0)
-    g.press(0.2)
-    assert g.press(0.3) is Action.NONE
+    g.poll(0.1, key_down=False)
+    g.poll(0.2, key_down=False)
+    g.press(0.5)
+    assert g.press(0.6) is Action.NONE
 
 
 def test_latched_ignores_key_state_until_press():
     g = Gesture(now=0.0)
     g.poll(0.1, key_down=False)
+    g.poll(0.2, key_down=False)
     assert g.poll(5.0, key_down=True) is Action.NONE and g.mode == "latched"  # клавиша нажата, WM_HOTKEY ещё не пришёл
 
 

@@ -635,6 +635,8 @@ class App:
             if action is Action.NONE:
                 action = gesture.poll(now, bool(winapi.GetAsyncKeyState(mode.hotkey.vk) & 0x8000))
             if action is Action.FINISH:
+                if gesture.ignored:
+                    log.info("Повторов сочетания при удержании пропущено: %d", gesture.ignored)
                 return
             if recorder.elapsed() >= max_sec:
                 log.info("Запись остановлена по пределу %d с", max_sec)
