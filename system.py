@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import winapi as w
-from config import APP_NAME, VERSION, data_dir, installed_config_path, is_frozen
+from config import APP_NAME, AUTHOR, VERSION, data_dir, installed_config_path, is_frozen
 
 log = logging.getLogger(__name__)
 
@@ -199,7 +199,7 @@ def register_uninstaller(exe: Path, pulled_models: list[str] = ()) -> None:
         values = {
             "DisplayName": APP_NAME,
             "DisplayVersion": VERSION,
-            "Publisher": APP_NAME,
+            "Publisher": AUTHOR,
             "DisplayIcon": f'"{exe}",0',
             "InstallLocation": str(exe.parent),
             "UninstallString": f'"{exe}" --uninstall',

@@ -28,7 +28,7 @@ import speech
 import system
 import winapi
 from capture import Clipboard, ClipboardError, TextCapture, release_keys
-from config import APP_NAME, VERSION, Config, ConfigError
+from config import APP_NAME, AUTHOR, VERSION, Config, ConfigError
 from dictation import Action, Gesture, dictate, paste_target_ok
 from hotkeys import HotkeyManager
 from hotkeys_window import HotkeysWindow
@@ -440,7 +440,7 @@ class App:
             pystray.MenuItem("Открыть папку журналов", self.open_logs),
         )
         return pystray.Menu(
-            pystray.MenuItem(lambda item: f"{APP_NAME} {VERSION} · {self._status_text()}", None, enabled=False),
+            pystray.MenuItem(lambda item: f"{APP_NAME} {VERSION} by {AUTHOR} · {self._status_text()}", None, enabled=False),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Отменить обработку", self.cancel, visible=lambda item: self.busy),
             *[pystray.MenuItem(lambda item, i=i: self._hotkey_label(i), self._hotkey_action(i),

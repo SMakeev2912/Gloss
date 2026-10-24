@@ -6,6 +6,7 @@ import tkinter.font
 
 import winapi
 import widgets
+from config import AUTHOR
 from ui import make_icon
 from widgets import COLORS, GLYPHS, Panel, PillButton, mono, sans  # noqa: F401  (COLORS, GLYPHS – для окон)
 
@@ -53,6 +54,8 @@ class Chrome:
         header.pack(fill="x", padx=self.px(16), pady=(self.px(14), 0))
         self._icon = widgets.photo(make_icon("idle", self.px(52), bg=COLORS["panel"]), window)
         tk.Label(header.inner, image=self._icon, bg=COLORS["panel"], bd=0).pack(side="left", anchor="n")
+        tk.Label(header.inner, text=f"by {AUTHOR}", bg=COLORS["panel"], fg=COLORS["muted"],
+                 font=mono(9)).pack(side="right", anchor="ne", padx=(0, self.px(4)))
         titles = tk.Frame(header.inner, bg=COLORS["panel"])
         titles.pack(side="left", fill="x", expand=True, padx=(self.px(16), self.px(8)))
         self.title = tk.Label(titles, bg=COLORS["panel"], fg=COLORS["text"], font=mono(14, bold=True), anchor="w")

@@ -19,6 +19,7 @@ log = logging.getLogger(__name__)
 
 APP_NAME = "Gloss"
 VERSION = "1.1.2"
+AUTHOR = "SMakeev"
 
 
 def _update_repo() -> str | None:
