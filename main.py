@@ -291,10 +291,16 @@ class App:
         def problem() -> str | None:
             return None if self.health is None or self.health.ok else self.health.message
 
+        def speech_state() -> str:
+            if self._speech_installing:
+                return "installing"
+            return "ready" if speech.is_installed() else "missing"
+
         def open_window():
             if not self._raise_window("onboarding"):
                 self._windows["onboarding"] = OnboardingWindow(
-                    self.ui.root, self.cfg, problem, on_close=lambda: config.save_state(onboarding_done=True))
+                    self.ui.root, self.cfg, problem, on_close=lambda: config.save_state(onboarding_done=True),
+                    speech_state=speech_state)
         self.ui.post(open_window)
 
     def _raise_window(self, name: str) -> bool:

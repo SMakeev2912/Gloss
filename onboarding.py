@@ -5,22 +5,44 @@ import tkinter as tk
 from typing import Callable
 
 from config import Config
+from modes import Mode
 import widgets
 from theme import COLORS, Chrome
 from widgets import PillButton, mono, sans
 
 SAMPLE = ("привет! я вчера ходил в магазин и купил там малоко, хлеб и ище немного фруктов. "
           "вобщем всё было харошо, но очередь была очень очень длинная")
+SPOKEN_SAMPLE = "Ну, короче, давай созвонимся завтра в три, нет, в четыре."
+
+
+def dictation_problem(mode: Mode, speech_state: str, model_problem: str | None) -> str | None:
+    """Почему диктовку сейчас не попробовать (None – можно).
+
+    speech_state: ready – распознавание установлено, installing – загружается, missing – его нет.
+    Если недоступна только модель, диктовка работает, но вставляет текст без улучшения."""
+    if not mode.enabled:
+        return "Диктовка выключена. Включить: меню значка → Настройки → Режимы."
+    if mode.hotkey is None:
+        return "У диктовки нет сочетания. Задать: меню значка → Настройки → Сочетания клавиш…"
+    if speech_state == "installing":
+        return "Распознавание речи ещё загружается. Подождите уведомления «Диктовка готова»."
+    if speech_state != "ready":
+        return "Распознавание речи не установлено: Gloss загрузит его сам, это займёт пару минут."
+    if model_problem:
+        return f"{model_problem.rstrip('. ')}. Диктовка вставит текст без улучшения."
+    return None
 
 
 class OnboardingWindow(Chrome):
-    PAGES = 3
+    PAGES = 4
 
-    def __init__(self, root: tk.Tk, cfg: Config, health: Callable[[], str | None], on_close: Callable[[], None]):
+    def __init__(self, root: tk.Tk, cfg: Config, health: Callable[[], str | None], on_close: Callable[[], None],
+                 speech_state: Callable[[], str] = lambda: "ready"):
         self.window = tk.Toplevel(root)
         super().__init__(self.window, "Знакомство с Gloss", min_size=(660, 440))
         self.cfg = cfg
         self.health = health      # None – всё готово, иначе текст проблемы с моделью
+        self.speech_state = speech_state  # ready / installing / missing, см. dictation_problem
         self.on_close = on_close
         self.page = 0
         self.window.protocol("WM_DELETE_WINDOW", self.close)
@@ -50,7 +72,7 @@ class OnboardingWindow(Chrome):
     def _show(self) -> None:
         self.clear_body()
         self._dots()
-        [self._page_intro, self._page_try, self._page_hotkeys][self.page]()
+        [self._page_intro, self._page_try, self._page_dictate, self._page_hotkeys][self.page]()
         back = ("←  Назад", lambda: self._go(-1)) if self.page else ("Пропустить", self.close)
         forward = ("Далее  →", lambda: self._go(1)) if self.page < self.PAGES - 1 else ("Начать работу", self.close)
         self.buttons(forward, back)
@@ -132,6 +154,54 @@ class OnboardingWindow(Chrome):
 
         watch()
         text.focus_set()
+
+    def _page_dictate(self) -> None:
+        mode = self.cfg.dictation.mode
+        self.set_titles("Попробуйте диктовку", "Скажите фразу, и Gloss вставит её туда, где стоит курсор.")
+        row = tk.Frame(self.body, bg=COLORS["bg"])
+        row.pack(fill="x", pady=(0, self.px(4)))
+        widgets.text(row, "Нажмите", "text", sans(10, bold=True)).pack(side="left")
+        widgets.keycaps(row, str(mode.hotkey or "…")).pack(side="left", padx=self.px(10))
+        widgets.text(row, "скажите фразу и нажмите ещё раз.", "text", sans(10, bold=True)).pack(side="left")
+        widgets.text(self.body, "Можно и удерживать: тогда запись идёт, пока клавиши нажаты.", "muted", sans(9)
+                     ).pack(fill="x", pady=(0, self.px(10)))
+        hint = widgets.Panel(self.body, padding=(12, 8))
+        hint.pack(fill="x", pady=(0, self.px(10)))
+        widgets.text(hint.inner, "Например, скажите вслух:", "muted", sans(9)).pack(fill="x")
+        widgets.text(hint.inner, f"«{SPOKEN_SAMPLE}»", "text", sans(11), wrap=580).pack(fill="x", pady=(self.px(2), 0))
+        problem = dictation_problem(mode, self.speech_state(), self.health())
+        if problem:
+            self._note(problem, "warn")
+        panel = widgets.Panel(self.body, padding=(12, 10))
+        panel.pack(fill="x", pady=(0, self.px(10)))
+        text = tk.Text(panel.inner, height=3, wrap="word", font=sans(11), relief="flat", bd=0, highlightthickness=0,
+                       bg=COLORS["panel"], fg=COLORS["text"], insertbackground=COLORS["accent"],
+                       selectbackground="#5a3b26", selectforeground=COLORS["text"], undo=True)
+        text.pack(fill="x")
+        _bind_clipboard_keys(text)  # диктовка вставляет через Ctrl+V
+        result = tk.Frame(self.body, bg=COLORS["bg"])
+        result.pack(fill="x")
+
+        def clear() -> None:
+            text.delete("1.0", "end")
+            for child in result.winfo_children():
+                child.destroy()
+            text.focus_set()
+
+        def watch() -> None:
+            if not text.winfo_exists():
+                return
+            if text.get("1.0", "end-1c").strip() and not result.winfo_children():
+                PillButton(result, "Очистить", clear, height=32).pack(side="right", anchor="n")
+                self._note("Получилось! Так же это работает в любом поле ввода: в мессенджере, браузере, почте.",
+                           "ok", parent=result)
+                self.window.after_idle(self.fit_window)
+            text.after(300, watch)
+
+        watch()
+        # Курсор сразу в поле: диктовка вставляет туда, где он стоит. С задержкой, чтобы фокус
+        # не забрала нажатая кнопка «Далее».
+        self.window.after(50, lambda: text.winfo_exists() and text.focus_set())
 
     def _page_hotkeys(self) -> None:
         self.set_titles("Режимы и подсказки", "Запоминать ничего не нужно: список всегда под рукой в меню значка.")
