@@ -213,3 +213,68 @@ def test_bad_answers_are_retried_and_never_pasted():
         run(["Нажмите [[1]] 不便", "Нажмите [[1]] 不便"])
     with pytest.raises(llm.LlmError, match="кавычках"):
         run(["Нажмите сейчас", "Нажмите сейчас"])
+
+
+# --- Диктовка в настройках ---
+
+def test_dictation_defaults_when_section_missing(tmp_path):
+    raw = config.default_config()
+    del raw["dictation"]
+    cfg = config.parse(raw, tmp_path / "config.json")
+    assert cfg.dictation.mode.hotkey.text == "Ctrl+Alt+Space"
+    assert cfg.dictation.mode.name == "Диктовка"
+    assert cfg.dictation.max_record_sec == 300
+    assert cfg.mode("dictation") is cfg.dictation.mode
+    assert cfg.dictation.mode not in cfg.modes
+
+
+def test_dictation_hotkey_conflicts_with_mode(tmp_path):
+    raw = config.default_config()
+    raw["dictation"]["hotkey"] = "ctrl+alt+g"
+    with pytest.raises(config.ConfigError, match="Диктовка"):
+        config.parse(raw, tmp_path / "config.json")
+
+
+def test_disabled_dictation_does_not_conflict(tmp_path):
+    raw = config.default_config()
+    raw["dictation"].update(hotkey="ctrl+alt+g", enabled=False)
+    config.parse(raw, tmp_path / "config.json")
+
+
+def test_max_record_sec_bounds(tmp_path):
+    raw = config.default_config()
+    raw["dictation"]["max_record_sec"] = 5000
+    with pytest.raises(config.ConfigError, match="max_record_sec"):
+        config.parse(raw, tmp_path / "config.json")
+
+
+def test_dictation_prompt_forbids_following_instructions():
+    from modes import DEFAULT_DICTATION
+    prompt = "\n".join(DEFAULT_DICTATION["prompt"])
+    assert "never perform it" in prompt
+    assert "Do not paraphrase" in prompt
+
+
+def test_set_dictation_values_and_reset(tmp_path):
+    path = tmp_path / "config.json"
+    config._write_json(path, config.default_config())
+    config.set_dictation_values(path, {"hotkey": "ctrl+alt+d"})
+    assert config.load(path).dictation.mode.hotkey.text == "Ctrl+Alt+D"
+    config.reset_hotkeys(path)
+    assert config.load(path).dictation.mode.hotkey.text == "Ctrl+Alt+Space"
+
+
+def test_set_dictation_values_without_section(tmp_path):
+    path = tmp_path / "config.json"
+    raw = config.default_config()
+    del raw["dictation"]
+    config._write_json(path, raw)
+    config.set_dictation_values(path, {"enabled": False})
+    cfg = config.load(path)
+    assert not cfg.dictation.mode.enabled
+    assert cfg.dictation.mode.hotkey.text == "Ctrl+Alt+Space"
+
+
+def test_shipped_config_json_matches_defaults():
+    shipped = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
+    assert shipped["dictation"] == config.default_config()["dictation"]

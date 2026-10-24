@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 
 from hotkeys import HotkeyError, parse_hotkey
 from catalog import DEFAULT_MODEL, MODELS
-from modes import DEFAULT_COMMON_RULES, DEFAULT_MODES, Mode
+from modes import DEFAULT_COMMON_RULES, DEFAULT_DICTATION, DEFAULT_MODES, Mode
 
 log = logging.getLogger(__name__)
 
@@ -85,6 +85,12 @@ class UpdateSettings:
 
 
 @dataclass(frozen=True)
+class DictationSettings:
+    mode: Mode              # id = "dictation": сочетание, промпт, включена ли
+    max_record_sec: int     # дольше запись не идёт: останавливается и обрабатывается сама
+
+
+@dataclass(frozen=True)
 class Config:
     path: Path
     backend: str            # builtin – встроенный движок, ollama – установленная Ollama
@@ -97,8 +103,11 @@ class Config:
     protect_quotes: bool    # текст в кавычках модель не меняет (см. quotes.py)
     common_rules: str
     modes: tuple[Mode, ...]
+    dictation: DictationSettings
 
     def mode(self, mode_id: str) -> Mode | None:
+        if mode_id == self.dictation.mode.id:
+            return self.dictation.mode
         return next((m for m in self.modes if m.id == mode_id), None)
 
 
@@ -136,6 +145,7 @@ def default_config() -> dict:
         },
         "common_rules": list(DEFAULT_COMMON_RULES),
         "modes": copy.deepcopy(DEFAULT_MODES),
+        "dictation": copy.deepcopy(DEFAULT_DICTATION),
     }
 
 
@@ -266,9 +276,19 @@ def set_mode_hotkey(path: Path, mode_id: str, hotkey: str) -> None:
 
 
 def reset_hotkeys(path: Path) -> None:
-    """Сочетания по умолчанию для стандартных режимов (свои режимы не трогаем)."""
+    """Сочетания по умолчанию для стандартных режимов и диктовки (свои режимы не трогаем)."""
     present = {m.get("id") for m in read_raw(path).get("modes") or [] if isinstance(m, dict)}
     _set_mode_values(path, {m["id"]: {"hotkey": m["hotkey"]} for m in DEFAULT_MODES if m["id"] in present})
+    set_dictation_values(path, {"hotkey": DEFAULT_DICTATION["hotkey"]})
+
+
+def set_dictation_values(path: Path, values: dict) -> None:
+    """Меняет только переданные ключи секции dictation; если секции нет, создаёт её со значениями по умолчанию."""
+    raw = read_raw(path)
+    section = raw.get("dictation") if isinstance(raw.get("dictation"), dict) else copy.deepcopy(DEFAULT_DICTATION)
+    section.update(values)
+    raw["dictation"] = section
+    _write_json(path, raw)
 
 
 # --- Валидация ----------------------------------------------------------------
@@ -394,6 +414,34 @@ def _parse_modes(raw_modes, default_temperature: float, v: _Validator) -> tuple[
     return tuple(modes)
 
 
+def _parse_dictation(d: dict, modes: tuple[Mode, ...], v: _Validator) -> DictationSettings:
+    name = v.string(d, "name", "dictation") or DEFAULT_DICTATION["name"]
+    enabled = v.boolean(d, "enabled", "dictation")
+    hotkey = None
+    spec = d["hotkey"]
+    if spec not in (None, ""):
+        if not isinstance(spec, str):
+            v.errors.append("«dictation.hotkey» должно быть строкой вида \"ctrl+alt+space\"")
+        else:
+            try:
+                hotkey = parse_hotkey(spec)
+            except HotkeyError as exc:
+                v.errors.append(f"«dictation.hotkey»: {exc}")
+    if hotkey and enabled:
+        for mode in modes:
+            if mode.enabled and mode.hotkey and (mode.hotkey.modifiers, mode.hotkey.vk) == (hotkey.modifiers, hotkey.vk):
+                v.errors.append(f"{hotkey} назначена и режиму «{mode.name}», и режиму «{name}»")
+    mode = Mode(
+        id="dictation",
+        name=name,
+        prompt=v.text(d["prompt"], "dictation.prompt"),
+        hotkey=hotkey,
+        enabled=enabled,
+        temperature=v.number(d, "temperature", "dictation", 0.0, 2.0),
+    )
+    return DictationSettings(mode=mode, max_record_sec=v.number(d, "max_record_sec", "dictation", 10, 1800, integer=True))
+
+
 def parse(raw: dict, path: Path) -> Config:
     defaults = default_config()
     v = _Validator()
@@ -449,6 +497,7 @@ def parse(raw: dict, path: Path) -> Config:
     protect_quotes = v.boolean(top, "protect_quotes", "config")
     common_rules = v.text(top["common_rules"], "common_rules")
     modes = _parse_modes(top["modes"], model.temperature, v)
+    dictation = _parse_dictation(v.section(raw, "dictation", defaults["dictation"]), modes, v)
 
     if v.errors:
         raise ConfigError("\n".join(v.errors))
@@ -464,6 +513,7 @@ def parse(raw: dict, path: Path) -> Config:
         protect_quotes=protect_quotes,
         common_rules=common_rules,
         modes=modes,
+        dictation=dictation,
     )
 
 
