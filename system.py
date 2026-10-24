@@ -46,9 +46,14 @@ def engine_dir() -> Path:
     return data_dir() / "engine"
 
 
+def speech_dir() -> Path:
+    return data_dir() / "speech"
+
+
 def engine_dirs() -> list[Path]:
-    """Движок и его временные копии при обновлении (см. engine.install)."""
-    return [engine_dir(), data_dir() / "engine.new", data_dir() / "engine.old"]
+    """Движок, распознавание речи и их временные копии при обновлении (см. engine.install, speech.install)."""
+    return [engine_dir(), data_dir() / "engine.new", data_dir() / "engine.old",
+            speech_dir(), data_dir() / "speech.new", data_dir() / "speech.old"]
 
 
 def models_dir() -> Path:
@@ -66,7 +71,7 @@ def installed_exe() -> Path:
 def temp_dirs() -> list[Path]:
     """Временные папки установщика и обновлений."""
     temp = Path(tempfile.gettempdir())
-    return [temp / "GlossSetup", temp / f"{APP_NAME}-update", temp / f"{APP_NAME}-engine"]
+    return [temp / "GlossSetup", temp / f"{APP_NAME}-update", temp / f"{APP_NAME}-engine", temp / f"{APP_NAME}-speech"]
 
 
 def acquire_single_instance():
@@ -241,9 +246,11 @@ def stop_running_gloss(exclude_self: bool = False) -> None:
 # --- Удаление ------------------------------------------------------------------------
 
 def stop_engine() -> None:
-    """Останавливает встроенный движок (только наш llama-server, а не чужие копии llama.cpp)."""
+    """Останавливает встроенный движок и распознавание речи (только свои копии, а не чужие)."""
     run_powershell(f"Get-Process llama-server -ErrorAction SilentlyContinue | Where-Object "
                    f"{{ $_.Path -like {_ps_quote(str(engine_dir()) + '*')} }} | Stop-Process -Force")
+    run_powershell(f"Get-Process sherpa-onnx-offline -ErrorAction SilentlyContinue | Where-Object "
+                   f"{{ $_.Path -like {_ps_quote(str(speech_dir()) + '*')} }} | Stop-Process -Force")
 
 
 def _delete_ollama_models(models: list[str]) -> None:
