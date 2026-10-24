@@ -81,3 +81,39 @@ def test_changelog_release_moves_unreleased_points():
     assert changelog.version_points("1.1.0", released) == ["Новое"]
     assert changelog.version_points("v1.0.0", released) == ["Старое"]
     assert released.index("## Готовится") < released.index("## 1.1.0") < released.index("## 1.0.0")
+
+
+# --- Распознавание речи в установщике ---
+
+def test_download_gb_includes_speech():
+    from dataclasses import replace
+    model = sysinfo.DEFAULT_MODEL
+    info = replace(_info(16, has={model}), speech_installed=False)
+    assert 0.17 < sysinfo.download_gb(info, model) < 0.19
+    assert sysinfo.download_gb(replace(info, speech_installed=True), model) == 0
+    assert sysinfo.needs_download(info, model)
+    assert not sysinfo.needs_download(replace(info, speech_installed=True), model)
+
+
+def test_disk_needed_includes_speech():
+    from dataclasses import replace
+    import pytest
+    info = replace(_info(16), speech_installed=False)
+    drive = sysinfo._local_drive()
+    with_speech = sysinfo.disk_needed(info, None)[drive]
+    without = sysinfo.disk_needed(replace(info, speech_installed=True), None)[drive]
+    assert with_speech - without == pytest.approx(sysinfo.SPEECH_DISK_GB)
+
+
+def test_speech_step_between_model_and_gloss():
+    from setup_steps import STEPS
+    ids = [step_id for step_id, _ in STEPS]
+    assert ids.index("model") < ids.index("speech") < ids.index("gloss")
+
+
+def test_evaluate_system_has_speech_row():
+    from dataclasses import replace
+    rows = {c.name: c for c in sysinfo.evaluate_system(replace(_info(16), speech_installed=False))}
+    assert "185 МБ" in rows["Распознавание речи"].actual
+    rows = {c.name: c for c in sysinfo.evaluate_system(replace(_info(16), speech_installed=True))}
+    assert rows["Распознавание речи"].actual == "уже установлено"

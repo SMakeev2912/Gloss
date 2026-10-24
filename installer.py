@@ -15,6 +15,7 @@ from logging.handlers import RotatingFileHandler
 
 import config
 import engine
+import speech
 import sysinfo
 import system
 import widgets
@@ -126,6 +127,8 @@ class Wizard(Chrome):
             engine_step,
             f"Модель {spec['title']} уже загружена." if sysinfo.has_model(info, MODEL) else
             f"Загрузит модель {spec['title']} ({sysinfo.format_gb(spec['size_gb'])}): она и правит текст.",
+            "Распознавание речи уже установлено." if info.speech_installed else
+            f"Скачает распознавание речи ({speech.download_mb(info.arch):.0f} МБ) для диктовки голосом.",
             f"Обновит Gloss до версии {config.VERSION}, настройки сохранятся." if installed else
             "Установит Gloss, добавит ярлык в «Пуск» и, если захотите, автозапуск.",
             "Проверит, что всё работает, и запустит Gloss.",

@@ -16,12 +16,14 @@ from pathlib import Path
 
 import engine
 import model_files
+import speech
 from catalog import DEFAULT_MODEL, MODELS
 
 GB = 1024 ** 3
 
 GLOSS_DISK_GB = 0.1
 ENGINE_DISK_GB = 0.1
+SPEECH_DISK_GB = 0.3  # sherpa-onnx и GigaAM после распаковки занимают около 241 МБ
 OLLAMA_API = ("127.0.0.1", 11434)
 
 
@@ -64,6 +66,7 @@ class SystemInfo:
     ollama: OllamaState
     engine_installed: bool = False
     builtin_models: set[str] = field(default_factory=set)  # скачанные для встроенного движка
+    speech_installed: bool = False  # распознавание речи для диктовки
     internet: bool | None = None  # None – не проверяли
 
 
@@ -250,6 +253,7 @@ def collect() -> SystemInfo:
         threads=os.cpu_count() or 1, avx2=avx2, ram_gb=_ram_gb(), gpu=_gpu(),
         free_gb=_free_space(), ollama=ollama_state(),
         engine_installed=engine.is_installed(), builtin_models=set(model_files.downloaded_models()),
+        speech_installed=speech.is_installed(),
     )
 
 
@@ -270,6 +274,8 @@ def has_model(info: SystemInfo, model: str, backend: str = "builtin") -> bool:
 
 
 def needs_download(info: SystemInfo, model: str, backend: str = "builtin") -> bool:
+    if not info.speech_installed:
+        return True
     if backend == "builtin":
         return not info.engine_installed or not has_model(info, model, backend)
     return not has_model(info, model, backend)
@@ -279,14 +285,17 @@ def download_gb(info: SystemInfo, model: str, backend: str = "builtin") -> float
     total = 0.0
     if backend == "builtin" and not info.engine_installed:
         total += engine.download_mb(info.arch) / 1024
+    if not info.speech_installed:
+        total += speech.download_mb(info.arch) / 1024
     if not has_model(info, model, backend):
         total += MODELS[model]["size_gb"]
     return total
 
 
 def disk_needed(info: SystemInfo, model: str | None, backend: str = "builtin") -> dict[str, float]:
-    """Сколько места нужно на каждом диске. model=None – только сам Gloss и движок."""
-    need = {_local_drive(): GLOSS_DISK_GB + (ENGINE_DISK_GB if backend == "builtin" else 0)}
+    """Сколько места нужно на каждом диске. model=None – только сам Gloss, движок и распознавание речи."""
+    need = {_local_drive(): GLOSS_DISK_GB + (ENGINE_DISK_GB if backend == "builtin" else 0)
+            + (0 if info.speech_installed else SPEECH_DISK_GB)}
     if model and not has_model(info, model, backend):
         drive = _local_drive() if backend == "builtin" else Path(ollama_models_dir()).anchor
         need[drive] = need.get(drive, 0) + MODELS[model]["size_gb"] + 0.5
@@ -337,6 +346,9 @@ def evaluate_system(info: SystemInfo) -> list[Check]:
     engine_text = "уже установлен" if info.engine_installed else \
         f"будет скачан ({engine.download_mb(info.arch):.0f} МБ)"
     checks.append(Check("Движок нейросети", "llama.cpp, ставится вместе с Gloss", engine_text, "ok"))
+    speech_text = "уже установлено" if info.speech_installed else \
+        f"будет скачано ({speech.download_mb(info.arch):.0f} МБ)"
+    checks.append(Check("Распознавание речи", "GigaAM v3, ставится вместе с Gloss", speech_text, "ok"))
     return checks
 
 

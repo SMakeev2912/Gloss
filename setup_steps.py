@@ -1,4 +1,4 @@
-"""Шаги установки: движок нейросети, модель, Gloss. Без интерфейса, его рисует installer.py.
+"""Шаги установки: движок нейросети, модель, распознавание речи, Gloss. Без интерфейса, его рисует installer.py.
 
 Каждый шаг сначала проверяет, не сделан ли он уже, поэтому повторный запуск
 установщика продолжает с места остановки (модель докачивается).
@@ -19,6 +19,7 @@ from typing import Callable
 import config
 import engine
 import model_files
+import speech
 import sysinfo
 import system
 from catalog import DEFAULT_MODEL, MODELS
@@ -43,6 +44,7 @@ class Options:
 STEPS = [
     ("engine", "Скачать движок нейросети"),
     ("model", "Загрузить модель"),
+    ("speech", "Скачать распознавание речи"),
     ("gloss", "Установить Gloss"),
     ("verify", "Проверить, что модель отвечает"),
     ("launch", "Запустить Gloss"),
@@ -101,6 +103,7 @@ class Installer:
         plan: list[tuple[str, Callable[[], str] | None, str]] = [
             ("engine", self._install_engine if builtin else None, "используется Ollama"),
             ("model", self._download_model if builtin else self._pull_ollama_model, ""),
+            ("speech", self._install_speech, ""),  # диктовке всё равно, чем обрабатывается текст
             ("gloss", self._install_gloss, ""),
             ("verify", self._verify, ""),
             ("launch", self._launch, ""),
@@ -147,6 +150,19 @@ class Installer:
         except UpdateError as exc:
             raise SetupError(str(exc)) from None
         return format_size(MODELS[model]["size_gb"] * sysinfo.GB)
+
+    def _install_speech(self) -> str:
+        if speech.is_installed():
+            return "уже установлено"
+        if speech.speech_dir().exists():  # прежняя версия: её файлы может держать запущенная диктовка
+            self.report.progress(None, "Останавливаю запущенный Gloss…")
+            system.stop_running_gloss()
+            system.stop_engine()
+        try:
+            speech.install(sysinfo.arch(), self.report.progress, self.cancel)
+        except UpdateError as exc:
+            raise SetupError(str(exc)) from None
+        return f"{speech.download_mb(sysinfo.arch()):.0f} МБ"
 
     def _pull_ollama_model(self) -> str:
         model = self.options.model
