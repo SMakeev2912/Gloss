@@ -125,6 +125,7 @@ class _Overlay:
         self._frame = 0
         self._tick_job = None
         self._title = ""
+        self._shown = 0  # номер показа: короткое сообщение не прячет плашку, показанную после него
 
     def _build(self) -> None:
         colors = widgets.COLORS
@@ -157,6 +158,7 @@ class _Overlay:
     def show(self, title: str, detail: str) -> None:
         if self.window is None:
             self._build()
+        self._shown += 1
         self._title = title
         self.update(detail)
         self.window.update_idletasks()
@@ -184,6 +186,11 @@ class _Overlay:
         self._frame = (self._frame + 1) % len(self._frames)
         self.spinner.configure(image=self._frames[self._frame])
         self._tick_job = self.root.after(80, self._tick)
+
+    def flash(self, title: str, detail: str, seconds: float) -> None:
+        self.show(title, detail)
+        shown = self._shown
+        self.root.after(int(seconds * 1000), lambda: self.hide() if self._shown == shown else None)
 
     def hide(self) -> None:
         if self._tick_job is not None:
@@ -236,6 +243,10 @@ class Ui:
 
     def hide_progress(self) -> None:
         self.post(lambda: self._overlay.hide())
+
+    def flash(self, title: str, detail: str, seconds: float = 2.0) -> None:
+        """Короткое сообщение на плашке, которое само исчезнет через seconds."""
+        self.post(lambda: self._overlay.flash(title, detail, seconds))
 
     def quit(self) -> None:
         self.post(lambda: self._root.quit())

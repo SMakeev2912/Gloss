@@ -281,6 +281,17 @@ class TextCapture:
             return
         self.restore(captured)
 
+    def paste_text(self, text: str, hotkey_vk: int | None, settings: CaptureSettings) -> None:
+        """Вставляет текст в позицию курсора, не копируя выделение (для диктовки)."""
+        release_keys(hotkey_vk, settings.modifier_release_timeout_ms)
+        snapshot = None
+        if settings.restore_clipboard:
+            try:
+                snapshot = self.clipboard.snapshot()
+            except ClipboardError as exc:
+                log.warning("Не удалось сохранить буфер обмена: %s", exc)
+        self.paste(text, Captured(text, snapshot), settings)
+
     def put_result(self, text: str) -> None:
         """Оставляет результат в буфере (без пометки «приватно» – пользователь вставит сам)."""
         self.clipboard.set_text(text.replace("\n", "\r\n"), private=False)
