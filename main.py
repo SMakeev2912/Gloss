@@ -487,8 +487,11 @@ class App:
             return
         target = winapi.GetForegroundWindow()
         if mode_id == "dictation":
+            pressed_at = time.monotonic()  # до открытия микрофона: оно бывает долгим (Bluetooth-гарнитура)
+            while not self._dictation_presses.empty():  # нажатия, оставшиеся от прошлой диктовки
+                self._dictation_presses.get_nowait()
             self._dictating = True
-            threading.Thread(target=self._run_dictation, args=(target,), name="job", daemon=True).start()
+            threading.Thread(target=self._run_dictation, args=(target, pressed_at), name="job", daemon=True).start()
         else:
             threading.Thread(target=self._run_job, args=(mode_id, target), name="job", daemon=True).start()
 
@@ -610,11 +613,12 @@ class App:
         else:
             self.tray.notify(title, detail)
 
-    def _record(self, recorder: Recorder, mode, max_sec: int) -> None:
-        """Ждёт конца записи: повторного нажатия, отпускания клавиши, Esc или предела длины."""
-        while not self._dictation_presses.empty():  # нажатия, оставшиеся от прошлой записи
-            self._dictation_presses.get_nowait()
-        gesture = Gesture(time.monotonic())
+    def _record(self, recorder: Recorder, mode, max_sec: int, pressed_at: float) -> None:
+        """Ждёт конца записи: повторного нажатия, отпускания клавиши, Esc или предела длины.
+
+        pressed_at – время первого нажатия: пока открывался микрофон, клавишу могли уже отпустить
+        (это удержание) или нажать ещё раз (это конец записи), и эти нажатия уже лежат в очереди."""
+        gesture = Gesture(pressed_at)
         shown = 0.0
         while not self._cancel.is_set():
             now = time.monotonic()
@@ -636,7 +640,7 @@ class App:
                 shown = now
             time.sleep(0.02)
 
-    def _run_dictation(self, target) -> None:
+    def _run_dictation(self, target, pressed_at: float) -> None:
         cfg, llm, capture = self.cfg, self.llm, self.capture
         mode = cfg.dictation.mode
         title = f"Gloss · {mode.name}"
@@ -657,7 +661,7 @@ class App:
                 self.tray.notify(str(exc), "Проверьте, что микрофон подключён и выбран в параметрах звука Windows.")
                 return
             self._set_busy(True, f"{mode.name}: слушаю")
-            self._record(recorder, mode, cfg.dictation.max_record_sec)
+            self._record(recorder, mode, cfg.dictation.max_record_sec, pressed_at)
             pcm = recorder.stop()
             if self._cancel.is_set():
                 raise Cancelled

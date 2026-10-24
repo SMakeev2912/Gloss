@@ -108,10 +108,19 @@ def test_late_first_poll_after_long_hold_counts_as_hold():
     assert g.poll(0.9, key_down=False) is Action.FINISH  # опрос опоздал, клавишу держали дольше 0,4 с
 
 
-def test_press_while_held_is_ignored():
+def test_any_second_press_finishes():
+    # MOD_NOREPEAT: новое нажатие приходит только после отпускания, значит, это всегда конец записи
+    held = Gesture(now=0.0)
+    held.poll(0.5, key_down=True)
+    assert held.press(0.6) is Action.FINISH and held.mode == "done"
+    double_tap = Gesture(now=0.0)
+    assert double_tap.press(0.2) is Action.FINISH  # второе нажатие раньше первого опроса
+
+
+def test_press_after_done_does_nothing():
     g = Gesture(now=0.0)
-    g.poll(0.5, key_down=True)
-    assert g.press(0.6) is Action.NONE and g.mode == "held"
+    g.press(0.2)
+    assert g.press(0.3) is Action.NONE
 
 
 def test_latched_ignores_key_state_until_press():
@@ -162,3 +171,40 @@ def test_target_window_changed_keeps_result_in_clipboard():
     assert not paste_target_ok(100, 200)
     assert not paste_target_ok(100, None)
     assert not paste_target_ok(None, None)
+
+
+# --- Ожидание конца записи в main.App ---
+
+def _record_with(monkeypatch, presses, key_down, pressed_at):
+    import queue
+    import threading
+    import types
+
+    import main
+    notes = []
+    fake_self = types.SimpleNamespace(
+        _cancel=threading.Event(), _dictation_presses=queue.SimpleQueue(),
+        tray=types.SimpleNamespace(notify=lambda *a: notes.append(a)),
+        ui=types.SimpleNamespace(update_progress=lambda *a, **k: None))
+    for press in presses:
+        fake_self._dictation_presses.put(press)
+    recorder = types.SimpleNamespace(elapsed=lambda: 0.3, level=lambda: 0.0)  # уже за пределом max_sec
+    monkeypatch.setattr(main.winapi, "GetAsyncKeyState", lambda vk: 0x8000 if key_down else 0)
+    mode = types.SimpleNamespace(hotkey=types.SimpleNamespace(vk=0x20))
+    main.App._record(fake_self, recorder, mode, max_sec=0.2, pressed_at=pressed_at)
+    return notes
+
+
+def test_hold_released_while_mic_was_opening_finishes(monkeypatch):
+    import time
+    # держали 1 с и отпустили, пока открывался микрофон: это удержание, запись заканчивается сразу
+    notes = _record_with(monkeypatch, [], key_down=False, pressed_at=time.monotonic() - 1.0)
+    assert notes == []  # закончилось по отпусканию, а не по пределу длины
+
+
+def test_second_tap_while_mic_was_opening_is_kept(monkeypatch):
+    import time
+    start = time.monotonic() - 0.6
+    # нажали, отпустили (короткое нажатие) и нажали ещё раз, пока открывался микрофон
+    notes = _record_with(monkeypatch, [start + 0.5], key_down=False, pressed_at=start)
+    assert notes == []

@@ -37,11 +37,14 @@ class Gesture:
         self.mode = "pressed"   # pressed / held / latched / done
 
     def press(self, now: float) -> Action:
-        """Сочетание нажато ещё раз (пришёл WM_HOTKEY)."""
-        if self.mode == "latched":
-            self.mode = "done"
-            return Action.FINISH
-        return Action.NONE  # при удержании повторов не бывает (MOD_NOREPEAT), но на всякий случай
+        """Сочетание нажато ещё раз (пришёл WM_HOTKEY).
+
+        С MOD_NOREPEAT новое нажатие приходит только после отпускания клавиши, поэтому в любом
+        состоянии записи оно означает «закончить», даже если отпускание опрос ещё не заметил."""
+        if self.mode == "done":
+            return Action.NONE
+        self.mode = "done"
+        return Action.FINISH
 
     def poll(self, now: float, key_down: bool) -> Action:
         if self.mode == "pressed":
