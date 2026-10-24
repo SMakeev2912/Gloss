@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from mic import has_speech, level_bar, rms, split_on_pauses, to_wav  # noqa: E402
+from mic import all_zero, has_speech, level_bar, mic_error_text, rms, split_on_pauses, to_wav  # noqa: E402
 
 RATE = 16000
 BYTES_PER_SEC = RATE * 2
@@ -67,3 +67,17 @@ def test_level_bar():
     assert level_bar(0) == "▯" * 8
     assert level_bar(1) == "▮" * 8
     assert level_bar(5) == "▮" * 8  # больше 1 не ломает
+
+
+# --- Микрофон ---
+
+def test_mic_error_texts():
+    assert mic_error_text(2) == "Микрофон не найден"  # MMSYSERR_BADDEVICEID
+    assert mic_error_text(6) == "Микрофон не найден"  # MMSYSERR_NODRIVER
+    assert mic_error_text(4) == "Микрофон занят другой программой"  # MMSYSERR_ALLOCATED
+    assert "код 11" in mic_error_text(11)
+
+
+def test_all_zero():
+    assert all_zero(silence(1))
+    assert not all_zero(silence(1) + b"\x01\x00")

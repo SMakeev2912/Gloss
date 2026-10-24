@@ -373,3 +373,53 @@ def set_dpi_awareness() -> None:
 def message_box(text: str, title: str, flags: int = 0x40) -> int:
     """Модальное окно сообщения (по умолчанию со значком «информация»)."""
     return MessageBoxW(None, text, title, flags | 0x00010000)  # MB_SETFOREGROUND
+
+
+# --- Микрофон (waveIn) -----------------------------------------------------------
+
+winmm = ctypes.WinDLL("winmm", use_last_error=True)
+
+WAVE_MAPPER = 0xFFFFFFFF  # микрофон по умолчанию в Windows
+WAVE_FORMAT_PCM = 1
+CALLBACK_EVENT = 0x00050000
+WHDR_DONE = 0x00000001
+MMSYSERR_ALLOCATED = 4
+MMSYSERR_BADDEVICEID = 2
+MMSYSERR_NODRIVER = 6
+HWAVEIN = wintypes.HANDLE
+
+
+class WAVEFORMATEX(ctypes.Structure):
+    _fields_ = [
+        ("wFormatTag", wintypes.WORD),
+        ("nChannels", wintypes.WORD),
+        ("nSamplesPerSec", wintypes.DWORD),
+        ("nAvgBytesPerSec", wintypes.DWORD),
+        ("nBlockAlign", wintypes.WORD),
+        ("wBitsPerSample", wintypes.WORD),
+        ("cbSize", wintypes.WORD),
+    ]
+
+
+class WAVEHDR(ctypes.Structure):
+    _fields_ = [
+        ("lpData", ctypes.c_void_p),
+        ("dwBufferLength", wintypes.DWORD),
+        ("dwBytesRecorded", wintypes.DWORD),
+        ("dwUser", ULONG_PTR),
+        ("dwFlags", wintypes.DWORD),
+        ("dwLoops", wintypes.DWORD),
+        ("lpNext", ctypes.c_void_p),
+        ("reserved", ULONG_PTR),
+    ]
+
+
+CreateEventW = _fn(kernel32, "CreateEventW", wintypes.HANDLE, wintypes.LPVOID, wintypes.BOOL, wintypes.BOOL, wintypes.LPCWSTR)
+waveInOpen = _fn(winmm, "waveInOpen", wintypes.UINT, ctypes.POINTER(HWAVEIN), wintypes.UINT,
+                 ctypes.POINTER(WAVEFORMATEX), ULONG_PTR, ULONG_PTR, wintypes.DWORD)
+waveInPrepareHeader = _fn(winmm, "waveInPrepareHeader", wintypes.UINT, HWAVEIN, ctypes.POINTER(WAVEHDR), wintypes.UINT)
+waveInUnprepareHeader = _fn(winmm, "waveInUnprepareHeader", wintypes.UINT, HWAVEIN, ctypes.POINTER(WAVEHDR), wintypes.UINT)
+waveInAddBuffer = _fn(winmm, "waveInAddBuffer", wintypes.UINT, HWAVEIN, ctypes.POINTER(WAVEHDR), wintypes.UINT)
+waveInStart = _fn(winmm, "waveInStart", wintypes.UINT, HWAVEIN)
+waveInReset = _fn(winmm, "waveInReset", wintypes.UINT, HWAVEIN)
+waveInClose = _fn(winmm, "waveInClose", wintypes.UINT, HWAVEIN)
