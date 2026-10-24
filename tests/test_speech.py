@@ -100,3 +100,55 @@ def test_install_on_32bit_refuses(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     with pytest.raises(speech.UpdateError, match="32-битную"):
         speech.install("x86", lambda fraction, detail: None, threading.Event())
+
+
+# --- Распознавание ---
+
+SAMPLE = DATA / "dictation_sample.wav"
+
+
+def test_parse_output_real_sample():
+    stdout = (DATA / "sherpa_offline_output.txt").read_text(encoding="utf-8")
+    texts = speech.parse_output(stdout, 3)
+    assert len(texts) == 3
+    assert texts[2] == ""  # третий файл в замере: тишина
+    assert "четыре" in texts[0].lower()
+    assert texts[1].startswith("Коллеги, добрый день.")
+
+
+def test_parse_output_count_mismatch_raises():
+    with pytest.raises(speech.SpeechError):
+        speech.parse_output("", 2)
+
+
+def test_parse_output_skips_non_json_lines():
+    assert speech.parse_output('мусор\n{"text": "Привет."}\n\n', 1) == ["Привет."]
+
+
+def test_command_uses_relative_latin_paths(tmp_path, monkeypatch):
+    # sherpa-onnx не открывает пути с кириллицей (C:\Users\Семён), поэтому всё относительно speech_dir()
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Семён"))
+    cmd = speech.command(["tmp/1.wav", "tmp/2.wav"], threads=4)
+    assert cmd[0] == str(speech.speech_dir() / "sherpa-onnx-offline.exe")
+    assert cmd[-2:] == ["tmp/1.wav", "tmp/2.wav"]
+    assert "--num-threads=4" in cmd
+    assert "--model-type=nemo_transducer" in cmd
+    assert all(arg.isascii() for arg in cmd[1:])
+
+
+def test_transcribe_without_install_raises(tmp_path, monkeypatch):
+    import threading
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    with pytest.raises(speech.SpeechMissing):
+        speech.transcribe(b"\x00\x00" * 16000, threading.Event())
+
+
+@pytest.mark.skipif(not speech.is_installed() or not SAMPLE.exists(), reason="нет распознавания или образца")
+def test_transcribe_real_wav():
+    import threading
+    import wave
+    with wave.open(str(SAMPLE), "rb") as wav:
+        pcm = wav.readframes(wav.getnframes())
+    text = speech.transcribe(pcm, threading.Event())
+    assert "созвон" in text.lower()
+    assert not any((speech.speech_dir() / "tmp").glob("*.wav"))  # временные файлы убраны

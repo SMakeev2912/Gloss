@@ -11,18 +11,24 @@ sherpa-onnx-offline.exe (модель загружается около секу
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import shutil
+import subprocess
 import tarfile
 import tempfile
 import threading
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path, PurePosixPath
 from typing import Callable
 
+import mic
+import winapi
 from config import APP_NAME, VERSION, data_dir
+from llm import Cancelled
 from updater import Aborted, Rate, UpdateError
 
 log = logging.getLogger(__name__)
@@ -43,6 +49,17 @@ _ENGINE_FILES = (EXE, "onnxruntime.dll")  # из bin/ архива движка,
 MODEL_FILES = ("encoder.int8.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt", "LICENSE")
 
 Progress = Callable[[float | None, str], None]
+NO_WINDOW = 0x08000000
+_CHUNK_SEC = 20.0
+_PAD = b"\x00\x00" * int(mic.SAMPLE_RATE * 0.25)  # тишина по краям куска: конец фразы распознаётся надёжнее
+
+
+class SpeechMissing(Exception):
+    """Распознавание речи не установлено или его файлы повреждены."""
+
+
+class SpeechError(Exception):
+    """sherpa-onnx завершился с ошибкой."""
 
 
 def speech_dir() -> Path:
@@ -188,3 +205,65 @@ def _copy_members(archive: Path, target: Path, names: tuple[str, ...], parent: s
                 continue
             with tar.extractfile(member) as src, open(target / path.name, "wb") as dst:
                 shutil.copyfileobj(src, dst)
+
+
+# --- Распознавание ------------------------------------------------------------------
+
+def command(files: list[str], threads: int) -> list[str]:
+    """Командная строка sherpa-onnx. Пути относительно speech_dir() и только латиницей:
+    sherpa-onnx не открывает файлы, если в пути есть кириллица (например, в папке пользователя «Семён»)."""
+    return [str(speech_dir() / EXE), "--tokens=model/tokens.txt", "--encoder=model/encoder.int8.onnx",
+            "--decoder=model/decoder.onnx", "--joiner=model/joiner.onnx", "--model-type=nemo_transducer",
+            f"--num-threads={threads}", *files]
+
+
+def parse_output(stdout: str, count: int) -> list[str]:
+    """Тексты из вывода sherpa-onnx: по строке JSON на каждый файл, в порядке подачи."""
+    texts = []
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            texts.append(str(json.loads(line).get("text", "")).strip())
+        except ValueError:
+            continue
+    if len(texts) != count:
+        raise SpeechError(f"sherpa-onnx вернул {len(texts)} результатов вместо {count}")
+    return texts
+
+
+def transcribe(pcm: bytes, cancel: threading.Event) -> str:
+    """Распознаёт запись (16 кГц, моно, 16 бит). Текст в журнал не пишется."""
+    if not is_installed():
+        raise SpeechMissing("Распознавание речи не установлено.")
+    chunks = mic.split_on_pauses(pcm, _CHUNK_SEC)
+    folder = speech_dir() / "tmp"
+    shutil.rmtree(folder, ignore_errors=True)
+    folder.mkdir(parents=True)
+    started = time.monotonic()
+    try:
+        files = []
+        for index, chunk in enumerate(chunks, start=1):
+            (folder / f"{index}.wav").write_bytes(mic.to_wav(_PAD + chunk + _PAD))
+            files.append(f"tmp/{index}.wav")
+        with open(folder / "out.txt", "wb") as out, open(folder / "err.txt", "wb") as err:
+            process = subprocess.Popen(command(files, min(4, os.cpu_count() or 1)), cwd=speech_dir(),
+                                       stdout=out, stderr=err, stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
+        winapi.kill_with_parent(process.pid)
+        while process.poll() is None:
+            if cancel.is_set():
+                process.kill()
+                process.wait()
+                raise Cancelled
+            time.sleep(0.05)
+        if process.returncode != 0:
+            tail = (folder / "err.txt").read_text(encoding="utf-8", errors="replace").splitlines()[-20:]
+            log.warning("sherpa-onnx завершился с кодом %s:\n%s", process.returncode, "\n".join(tail))
+            raise SpeechError(f"sherpa-onnx завершился с кодом {process.returncode}")
+        texts = parse_output((folder / "out.txt").read_text(encoding="utf-8", errors="replace"), len(files))
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+    log.info("Распознано: запись %.1f с, кусков %d, за %.1f с",
+             len(pcm) / (mic.SAMPLE_RATE * 2), len(chunks), time.monotonic() - started)
+    return " ".join(text for text in texts if text)
