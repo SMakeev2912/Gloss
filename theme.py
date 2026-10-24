@@ -128,9 +128,9 @@ class Chrome:
         widget.pack(fill="x", **({"pady": (0, self.px(6))} | pack))
         return widget
 
-    def heading(self, text: str, parent: tk.Misc | None = None, **pack) -> tk.Label:
-        """Заголовок раздела моноширинным шрифтом."""
-        widget = widgets.text(parent or self.body, text, "text", mono(11, bold=True))
+    def heading(self, text: str, parent: tk.Misc | None = None, wrap: int = 0, **pack) -> tk.Label:
+        """Заголовок раздела моноширинным шрифтом. wrap – перенос длинного заголовка (см. widgets.text)."""
+        widget = widgets.text(parent or self.body, text, "text", mono(11, bold=True), wrap=wrap)
         widget.pack(fill="x", **({"pady": (0, self.px(8))} | pack))
         return widget
 

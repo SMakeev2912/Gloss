@@ -106,10 +106,11 @@ class OnboardingWindow(Chrome):
         dictation = self.cfg.dictation.mode
         if dictation.enabled and dictation.hotkey:
             row = tk.Frame(self.body, bg=COLORS["bg"])
-            row.pack(fill="x", pady=(0, self.px(14)))
+            row.pack(fill="x", pady=(0, self.px(4)))
             widgets.text(row, "А ещё текст можно надиктовать:", "text", sans(10, bold=True)).pack(side="left")
             widgets.keycaps(row, str(dictation.hotkey)).pack(side="left", padx=self.px(10))
-            widgets.text(row, "попробуете на третьем шаге.", "text", sans(10, bold=True)).pack(side="left")
+            widgets.text(self.body, "Попробуете через страницу: скажете фразу, и Gloss вставит её без «ну» и оговорок.",
+                         "muted", sans(9), wrap=600).pack(fill="x", pady=(0, self.px(14)))
         note = tk.Frame(self.body, bg=COLORS["bg"])
         note.pack(fill="x")
         widgets.icon_label(note, "lock", 16, COLORS["muted"]).pack(side="left", padx=(self.px(2), self.px(10)))

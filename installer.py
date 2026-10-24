@@ -303,7 +303,8 @@ class Wizard(Chrome):
             widgets.hotkey_table(panel.inner, rows).pack(fill="x")
             dictation = cfg.dictation.mode
             if dictation.enabled and dictation.hotkey:
-                self.heading("Чтобы надиктовать, поставьте курсор в поле ввода и нажмите", pady=(self.px(14), self.px(8)))
+                self.heading("Чтобы надиктовать, поставьте курсор в поле ввода и нажмите", wrap=640,
+                             pady=(self.px(14), self.px(8)))
                 panel = widgets.Panel(self.body, padding=(18, 12))
                 panel.pack(fill="x")
                 widgets.hotkey_table(panel.inner, [(str(dictation.hotkey), "говорите, затем нажмите ещё раз")]
