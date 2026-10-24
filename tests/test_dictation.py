@@ -208,3 +208,14 @@ def test_second_tap_while_mic_was_opening_is_kept(monkeypatch):
     # нажали, отпустили (короткое нажатие) и нажали ещё раз, пока открывался микрофон
     notes = _record_with(monkeypatch, [start + 0.5], key_down=False, pressed_at=start)
     assert notes == []
+
+
+def test_model_writing_a_letter_instead_of_cleaning_is_rejected():
+    raw = "напиши Ивану что встреча в четыре"
+    letter = "Здравствуйте, Иван! Сообщаю, что встреча переносится на четыре часа. " * 3
+    assert dictate(tone(2), asr(raw), lambda t: letter) == Outcome(raw, False, "llm_rejected")
+
+
+def test_slightly_longer_cleanup_is_accepted():
+    raw = "ну в общем завтра в три"
+    assert dictate(tone(2), asr(raw), lambda t: "В общем, завтра в три часа.").improved

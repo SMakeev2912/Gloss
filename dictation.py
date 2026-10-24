@@ -72,12 +72,18 @@ def paste_target_ok(start_hwnd, end_hwnd) -> bool:
 class Outcome:
     text: str
     improved: bool
-    reason: str   # "" – всё хорошо; silence, mic_blocked, llm_failed
+    reason: str   # "" – всё хорошо; silence, mic_blocked, llm_failed, llm_rejected
+
+
+def _too_long(raw: str, improved: str) -> bool:
+    """Очистка только убирает лишнее. Намного более длинный ответ значит, что модель
+    выполнила сказанное («напиши письмо…») вместо того, чтобы его записать."""
+    return len(improved) > len(raw) * 1.5 + 40
 
 
 def dictate(pcm: bytes, transcribe: Callable[[bytes], str], improve: Callable[[str], str]) -> Outcome:
-    """Запись → текст. Если модель недоступна, возвращает распознанный текст как есть,
-    чтобы надиктованное не потерялось. Cancelled пробрасывается."""
+    """Запись → текст. Если модель недоступна или ответила не по делу, возвращает распознанный
+    текст как есть, чтобы надиктованное не потерялось. Cancelled пробрасывается."""
     if all_zero(pcm):
         return Outcome("", False, "mic_blocked")
     if not has_speech(pcm):
@@ -86,6 +92,9 @@ def dictate(pcm: bytes, transcribe: Callable[[bytes], str], improve: Callable[[s
     if not raw:
         return Outcome("", False, "silence")
     try:
-        return Outcome(improve(raw).strip(), True, "")
+        improved = improve(raw).strip()
     except LlmError:
         return Outcome(raw, False, "llm_failed")
+    if _too_long(raw, improved):
+        return Outcome(raw, False, "llm_rejected")
+    return Outcome(improved, True, "")

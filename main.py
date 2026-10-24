@@ -702,6 +702,9 @@ class App:
             capture.paste_text(outcome.text, mode.hotkey.vk if mode.hotkey else None, cfg.capture)
             if outcome.reason == "llm_failed":
                 self.tray.notify("Вставил текст без улучшения", "Модель сейчас недоступна, текст вставлен как распознан.")
+            elif outcome.reason == "llm_rejected":
+                log.warning("Модель ответила намного длиннее сказанного – вставлен распознанный текст")
+                self.tray.notify("Вставил текст без улучшения", "Модель ответила не по делу, текст вставлен как распознан.")
 
         except Cancelled:
             log.info("Диктовка отменена пользователем")
