@@ -28,9 +28,10 @@ import speech
 import system
 import winapi
 from capture import Clipboard, ClipboardError, TextCapture, release_keys
-from config import APP_NAME, AUTHOR, VERSION, Config, ConfigError
+from config import APP_NAME, VERSION, Config, ConfigError
 from dictation import Action, Gesture, dictate, paste_target_ok
 from hotkeys import HotkeyManager
+from about_window import AboutWindow
 from hotkeys_window import HotkeysWindow
 import engine
 import sysinfo
@@ -287,6 +288,12 @@ class App:
                 self._windows["hotkeys"] = HotkeysWindow(self.ui.root, self)
         self.ui.post(open_window)
 
+    def show_about(self) -> None:
+        def open_window():
+            if not self._raise_window("about"):
+                self._windows["about"] = AboutWindow(self.ui.root)
+        self.ui.post(open_window)
+
     def show_onboarding(self) -> None:
         def problem() -> str | None:
             return None if self.health is None or self.health.ok else self.health.message
@@ -440,7 +447,7 @@ class App:
             pystray.MenuItem("Открыть папку журналов", self.open_logs),
         )
         return pystray.Menu(
-            pystray.MenuItem(lambda item: f"{APP_NAME} {VERSION} by {AUTHOR} · {self._status_text()}", None, enabled=False),
+            pystray.MenuItem(lambda item: f"{APP_NAME} {VERSION} · {self._status_text()}", None, enabled=False),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Отменить обработку", self.cancel, visible=lambda item: self.busy),
             *[pystray.MenuItem(lambda item, i=i: self._hotkey_label(i), self._hotkey_action(i),
@@ -450,6 +457,7 @@ class App:
             pystray.MenuItem("Как пользоваться", self.show_onboarding),
             pystray.MenuItem(lambda item: self._updates_label(), self.show_updates),
             pystray.MenuItem("Настройки", settings),
+            pystray.MenuItem("О программе…", self.show_about),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Выход", self.quit),
         )
