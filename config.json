@@ -53,7 +53,12 @@
         "and make the text read naturally: rephrase only clumsy or awkward wording and remove accidental repetitions.",
         "Keep the original meaning, tone, style, level of formality, structure and approximately the same length.",
         "Make the minimum changes needed; do not rewrite sentences that are already good.",
-        "Keep the letters 'е' and 'ё' exactly as in the original."
+        "Keep the letters 'е' and 'ё' exactly as in the original.",
+        "Keep the author's voice: never soften or strengthen the tone. Keep particles and words that carry attitude or urgency (бы, уже, же, ведь, надо, нужно) unless they are an error.",
+        "Do not replace abbreviations (т.к., т.е., и т.д.) or conjunctions with synonyms.",
+        "Rephrase only when the wording is ungrammatical or ambiguous; otherwise keep the author's own words.",
+        "Before answering, re-read every word of your result and check its endings and spelling.",
+        "Always start the text and every sentence with a capital letter, even if the original starts with a lowercase letter."
       ]
     },
     {

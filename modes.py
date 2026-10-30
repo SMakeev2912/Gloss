@@ -25,6 +25,22 @@ DEFAULT_COMMON_RULES = [
     "8. Do not output the <text> tags themselves.",
 ]
 
+# Стандартный промпт «fix» из версий до 1.1.6: см. LEGACY_PROMPTS.
+_FIX_PROMPT_V1 = [
+    "Task: fix all spelling, punctuation, grammar and typing errors (including letter case and spacing),",
+    "and make the text read naturally: rephrase only clumsy or awkward wording and remove accidental repetitions.",
+    "Keep the original meaning, tone, style, level of formality, structure and approximately the same length.",
+    "Make the minimum changes needed; do not rewrite sentences that are already good.",
+    "Keep the letters 'е' and 'ё' exactly as in the original.",
+]
+
+# Прежние стандартные промпты режимов. Промпты живут в config.json пользователя, и обновление
+# приложения их не трогает; если там остался прежний стандартный (пользователь его не менял),
+# config.load подменяет его на нынешний. Свои правки пользователя не затрагиваются.
+LEGACY_PROMPTS = {
+    "fix": ["\n".join(_FIX_PROMPT_V1)],
+}
+
 DEFAULT_MODES = [
     {
         "id": "fix",
@@ -33,11 +49,12 @@ DEFAULT_MODES = [
         "enabled": True,
         "temperature": 0.2,
         "prompt": [
-            "Task: fix all spelling, punctuation, grammar and typing errors (including letter case and spacing),",
-            "and make the text read naturally: rephrase only clumsy or awkward wording and remove accidental repetitions.",
-            "Keep the original meaning, tone, style, level of formality, structure and approximately the same length.",
-            "Make the minimum changes needed; do not rewrite sentences that are already good.",
-            "Keep the letters 'е' and 'ё' exactly as in the original.",
+            *_FIX_PROMPT_V1,
+            "Keep the author's voice: never soften or strengthen the tone. Keep particles and words that carry attitude or urgency (бы, уже, же, ведь, надо, нужно) unless they are an error.",
+            "Do not replace abbreviations (т.к., т.е., и т.д.) or conjunctions with synonyms.",
+            "Rephrase only when the wording is ungrammatical or ambiguous; otherwise keep the author's own words.",
+            "Before answering, re-read every word of your result and check its endings and spelling.",
+            "Always start the text and every sentence with a capital letter, even if the original starts with a lowercase letter.",
         ],
     },
     {

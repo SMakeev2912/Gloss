@@ -13,12 +13,12 @@ from urllib.parse import urlsplit
 
 from hotkeys import HotkeyError, parse_hotkey
 from catalog import DEFAULT_MODEL, MODELS
-from modes import DEFAULT_COMMON_RULES, DEFAULT_DICTATION, DEFAULT_MODES, Mode
+from modes import DEFAULT_COMMON_RULES, DEFAULT_DICTATION, DEFAULT_MODES, LEGACY_PROMPTS, Mode
 
 log = logging.getLogger(__name__)
 
 APP_NAME = "Gloss"
-VERSION = "1.1.5"
+VERSION = "1.1.6"
 AUTHOR = "SMakeev"
 
 
@@ -223,12 +223,34 @@ def read_raw(path: Path) -> dict:
     return raw
 
 
+def refresh_default_prompts(raw: dict) -> bool:
+    """Заменяет в raw прежние стандартные промпты режимов на нынешние; True, если что-то заменено."""
+    changed = False
+    current = {m["id"]: m["prompt"] for m in DEFAULT_MODES}
+    for item in raw.get("modes") or []:
+        if not isinstance(item, dict) or item.get("id") not in LEGACY_PROMPTS:
+            continue
+        prompt = item.get("prompt")
+        text = "\n".join(prompt) if isinstance(prompt, list) and all(isinstance(p, str) for p in prompt) else prompt
+        if isinstance(text, str) and text.strip() in LEGACY_PROMPTS[item["id"]]:
+            item["prompt"] = list(current[item["id"]])
+            changed = True
+    return changed
+
+
 def load(path: Path | None = None) -> Config:
     path = path or config_path()
     if not path.exists():
         log.info("config.json не найден, создаю настройки по умолчанию: %s", path)
         _write_json(path, default_config())
-    return parse(read_raw(path), path)
+    raw = read_raw(path)
+    if refresh_default_prompts(raw):
+        log.info("Стандартный промпт в config.json обновлён до нынешнего")
+        try:
+            _write_json(path, raw)
+        except OSError as exc:  # например, exe лежит в защищённой папке: в этот запуск промпт всё равно новый
+            log.warning("Не удалось сохранить обновлённый промпт в %s: %s", path, exc)
+    return parse(raw, path)
 
 
 def installed_config_path() -> Path:

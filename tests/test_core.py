@@ -262,6 +262,47 @@ def test_dictation_prompt_forbids_following_instructions():
     assert "Do not paraphrase" in prompt
 
 
+def _legacy_fix_config(tmp_path, prompt):
+    from modes import LEGACY_PROMPTS
+    raw = config.default_config()
+    fix = next(m for m in raw["modes"] if m["id"] == "fix")
+    fix["prompt"] = prompt if prompt is not None else LEGACY_PROMPTS["fix"][0].split("\n")
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
+def test_legacy_default_fix_prompt_is_replaced_on_load(tmp_path):
+    from modes import DEFAULT_MODES
+    path = _legacy_fix_config(tmp_path, None)
+    cfg = config.load(path)
+    new_prompt = "\n".join(next(m for m in DEFAULT_MODES if m["id"] == "fix")["prompt"])
+    assert cfg.mode("fix").prompt == new_prompt.strip()
+    saved = next(m for m in json.loads(path.read_text(encoding="utf-8"))["modes"] if m["id"] == "fix")
+    assert "\n".join(saved["prompt"]) == new_prompt
+
+
+def test_customized_fix_prompt_is_kept_on_load(tmp_path):
+    path = _legacy_fix_config(tmp_path, ["Task: fix errors.", "Keep it short."])
+    before = path.read_text(encoding="utf-8")
+    cfg = config.load(path)
+    assert cfg.mode("fix").prompt == "Task: fix errors.\nKeep it short."
+    assert path.read_text(encoding="utf-8") == before
+
+
+def test_current_default_prompts_are_not_legacy():
+    from modes import DEFAULT_MODES, LEGACY_PROMPTS
+    for mode in DEFAULT_MODES:
+        assert "\n".join(mode["prompt"]) not in LEGACY_PROMPTS.get(mode["id"], [])
+
+
+def test_fix_prompt_keeps_voice_and_capitalization():
+    from modes import DEFAULT_MODES
+    prompt = "\n".join(next(m for m in DEFAULT_MODES if m["id"] == "fix")["prompt"])
+    assert "Keep the author's voice" in prompt
+    assert "capital letter" in prompt
+
+
 def test_set_dictation_values_and_reset(tmp_path):
     path = tmp_path / "config.json"
     config._write_json(path, config.default_config())
