@@ -172,3 +172,63 @@ def clean_output(original: str, output: str) -> str:
             break
 
     return s.strip()
+
+
+# Режимы, которые не должны сами разбивать однострочный текст на строки. Диктовка разбивает на абзацы
+# нарочно, а в своих режимах пользователя перенос может быть как раз целью (например, «сделай список»).
+SINGLE_LINE_MODES = {"fix", "shorten", "business"}
+
+
+def keep_single_line(original: str, output: str) -> str:
+    """Если в исходном тексте не было переносов строк, убирает те, что добавила модель («Hi team,⏎I wanted»)."""
+    if "\n" in original:
+        return output
+    return re.sub(r"[ \t]*\n\s*", " ", output)
+
+
+_EM_DASH = chr(0x2014)
+
+
+def plain_dashes(original: str, output: str) -> str:
+    """Заменяет длинное тире, которое поставила модель, на дефис; своё тире автора остаётся."""
+    return output if _EM_DASH in original else output.replace(_EM_DASH, "-")
+
+
+# Сокращения, после которых строчная буква продолжает предложение: «и т.д. по списку», «в 2020 г. было».
+_ABBREVIATIONS = {
+    "т.д", "т.п", "т.е", "т.к", "т.н", "т.ч", "т.о", "и.о", "т", "д", "е", "п", "н", "ч",  # и «т. д.» с пробелом
+    "др", "пр", "г", "гг", "см", "напр", "рис", "табл",
+    "стр", "ул", "руб", "коп", "тыс", "млн", "млрд", "им", "проф", "e.g", "i.e", "etc", "vs",
+}
+# Начало текста или предложения: после .!? и пробела, не считая открывающих скобок и кавычек.
+# Съедаем только первую букву, остальное слово смотрим вперёд: иначе знак конца следующего предложения
+# окажется внутри совпадения («привет! я пришёл»).
+_SENTENCE_START = re.compile(r"(?:\A\s*|(?P<end>[.!?…]+)\s+)(?P<open>[«\"“„(\[]*)(?P<first>[^\W\d_])(?=(?P<rest>\S*))")
+# Слово, которое не трогаем: camelCase (iPhone), адреса и пути, почта, цифры, «т.к.».
+_NOT_PROSE = re.compile(r"[@/\\:_\d]|\w\.\w")
+_LIST_MARKER = re.compile(r"(?:\d+|[ivxIVX]+)[.)]?\Z")
+
+
+def capitalize_sentences(text: str) -> str:
+    """Ставит заглавную букву в начале текста и каждого предложения (правило 4 из DEFAULT_COMMON_RULES).
+
+    Небольшая модель выполняет это правило не всегда, поэтому проверяем в коде. Консервативно:
+    не трогаем слова после многоточия, сокращений («т.д. по списку») и номеров списка, а также
+    слова, похожие на код, адрес или название вроде iPhone.
+    """
+    def fix(match: re.Match) -> str:
+        first = match.group("first")
+        word = first + match.group("rest")
+        if not first.islower() or any(ch.isupper() for ch in word[1:]) or _NOT_PROSE.search(word):
+            return match.group(0)
+        end = match.group("end")
+        if end:
+            if end.endswith(("..", "…")):  # «Ну... не знаю»: многоточие не заканчивает предложение
+                return match.group(0)
+            previous = re.search(r"\S+\Z", text[:match.start("end")])
+            token = previous.group(0).lstrip("([«\"“„").lower() if previous else ""
+            if token in _ABBREVIATIONS or _LIST_MARKER.match(token):
+                return match.group(0)
+        return match.group(0)[:-1] + first.upper()
+
+    return _SENTENCE_START.sub(fix, text)

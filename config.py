@@ -18,7 +18,7 @@ from modes import DEFAULT_COMMON_RULES, DEFAULT_DICTATION, DEFAULT_MODES, LEGACY
 log = logging.getLogger(__name__)
 
 APP_NAME = "Gloss"
-VERSION = "1.1.6"
+VERSION = "1.1.7"
 AUTHOR = "SMakeev"
 
 

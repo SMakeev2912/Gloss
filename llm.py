@@ -22,7 +22,8 @@ import engine
 import model_files
 import quotes
 from config import Config, ModelSettings, OllamaSettings
-from modes import CONDENSING_MODES, Mode, build_messages, clean_output
+from modes import (CONDENSING_MODES, SINGLE_LINE_MODES, Mode, build_messages, capitalize_sentences, clean_output,
+                   keep_single_line, plain_dashes)
 
 log = logging.getLogger(__name__)
 
@@ -279,7 +280,9 @@ class LlmClient:
         for attempt in (1, 2):  # второй раз – с температурой 0: так модель отвечает строже
             answer = self.chat(build_messages(rules, mode, sent), temperature if attempt == 1 else 0.0,
                                num_predict=len(core) + 256, cancel=cancel)
-            cleaned = clean_output(sent, answer)
+            cleaned = plain_dashes(sent, capitalize_sentences(clean_output(sent, answer)))
+            if mode.id in SINGLE_LINE_MODES:
+                cleaned = keep_single_line(sent, cleaned)
             if not cleaned:
                 raise LlmError("Модель вернула пустой ответ. Текст не изменён.")
             restored, missing, unknown = quotes.restore(cleaned, fragments) if fragments else (cleaned, [], [])

@@ -10,7 +10,7 @@ sys.path.insert(0, str(ROOT))
 import config  # noqa: E402
 from hotkeys import HotkeyError, parse_hotkey  # noqa: E402
 from llm import _split_whitespace, split_text  # noqa: E402
-from modes import clean_output  # noqa: E402
+from modes import capitalize_sentences, clean_output, keep_single_line, plain_dashes  # noqa: E402
 
 
 # --- split_text ---
@@ -260,6 +260,94 @@ def test_dictation_prompt_forbids_following_instructions():
     prompt = "\n".join(DEFAULT_DICTATION["prompt"])
     assert "never perform it" in prompt
     assert "Do not paraphrase" in prompt
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("привет! я пришёл. подскажите", "Привет! Я пришёл. Подскажите"),
+    ("коллеги, добрый день.\nподскажите, когда релиз?", "Коллеги, добрый день.\nПодскажите, когда релиз?"),
+    ("Готово. (проверьте почту). потом", "Готово. (Проверьте почту). Потом"),
+    ("Готово. (проверьте почту) потом", "Готово. (Проверьте почту) потом"),  # конца предложения нет
+    ("hello. i think so", "Hello. I think so"),
+    ("  привет", "  Привет"),
+])
+def test_capitalize_sentences_fixes_lowercase_starts(text, expected):
+    assert capitalize_sentences(text) == expected
+
+
+@pytest.mark.parametrize("text", [
+    "Нужно проверить всё: логи, метрики и т.д. по списку.",         # после сокращения предложение продолжается
+    "Нужно проверить логи, т. е. всё. Дальше.",
+    "В 2020 г. было больше. Потом меньше.",
+    "Ну... не знаю",                                                   # многоточие
+    "Ну… не знаю",
+    "1. купить хлеб\n2. позвонить",                                    # номера списка
+    "- пункт один\n- пункт два",                                       # маркеры списка
+    "Открой iPhone. iPhone готов",                                     # название с заглавной внутри
+    "Скачай тут. https://example.com/a и example.com, user@mail.ru",   # адреса и почта
+    "Запусти. npm_install_all и file2.txt",                            # код и цифры
+    "Закрой «Q1» и напиши",
+    "",
+])
+def test_capitalize_sentences_leaves_these_alone(text):
+    assert capitalize_sentences(text) == text
+
+
+def test_keep_single_line_removes_breaks_the_model_added():
+    assert keep_single_line("Hi team, I wanted to ask.", "Hi team,\nI wanted to ask.") == "Hi team, I wanted to ask."
+    assert keep_single_line("раз два", "раз  \n\nдва") == "раз два"
+
+
+def test_keep_single_line_keeps_original_breaks():
+    original = "Привет.\n\nКак дела?"
+    assert keep_single_line(original, "Привет.\n\nКак дела?") == "Привет.\n\nКак дела?"
+
+
+def test_plain_dashes_replaces_only_dashes_the_model_added():
+    dash = chr(0x2014)
+    assert plain_dashes("вопросы - пишите", f"Вопросы {dash} пишите") == "Вопросы - пишите"
+    assert plain_dashes(f"Москва {dash} столица", f"Москва {dash} столица.") == f"Москва {dash} столица."
+
+
+def test_model_answer_dash_is_replaced_but_quoted_dash_is_kept():
+    import threading
+    import llm
+
+    dash = chr(0x2014)
+
+    class FakeModel(llm.LlmClient):
+        def chat(self, messages, temperature, num_predict, cancel=None):
+            return f"Нажмите «Q1» {dash} и готово."
+
+    cfg = config.defaults(Path("x.json"))
+    result = FakeModel(cfg.model).process(f"нажмите «Да {dash} нет» и готово", cfg.mode("fix"), cfg.common_rules, 6000,
+                                          threading.Event())
+    assert result == f"Нажмите «Да {dash} нет» - и готово."
+
+
+def test_model_answer_is_capitalized_and_kept_single_line_by_mode():
+    import dataclasses
+    import threading
+    import llm
+
+    class FakeModel(llm.LlmClient):
+        def chat(self, messages, temperature, num_predict, cancel=None):
+            return "привет,\nя пришёл. подскажите"
+
+    cfg = config.defaults(Path("x.json"))
+    model = FakeModel(cfg.model)
+
+    def run(mode):
+        return model.process("привет я пришёл подскажите", mode, cfg.common_rules, 6000, threading.Event())
+
+    assert run(cfg.mode("fix")) == "Привет, я пришёл. Подскажите"
+    assert run(cfg.mode("dictation")) == "Привет,\nя пришёл. Подскажите"  # диктовка делит на абзацы нарочно
+    custom = dataclasses.replace(cfg.mode("fix"), id="bullets")
+    assert run(custom) == "Привет,\nя пришёл. Подскажите"  # свой режим может делать список
+
+
+def test_capitalize_sentences_is_idempotent():
+    once = capitalize_sentences("привет! как дела. хорошо")
+    assert capitalize_sentences(once) == once
 
 
 def _legacy_fix_config(tmp_path, prompt):
